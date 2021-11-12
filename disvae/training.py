@@ -62,6 +62,7 @@ class Trainer():
         self.logger.info("Training Device: {}".format(self.device))
 
     def __call__(self, data_loader,
+                 utilities=None,
                  epochs=10,
                  checkpoint_every=10):
         """
@@ -77,11 +78,16 @@ class Trainer():
         checkpoint_every: int, optional
             Save a checkpoint of the trained model every n epoch.
         """
+        if(utilities is None):
+            # load utilities from file 
+            print("Not implemented")
+            utilities = None
+            assert(False)
         start = default_timer()
         self.model.train()
         for epoch in range(epochs):
             storer = defaultdict(list)
-            mean_epoch_loss = self._train_epoch(data_loader, storer, epoch)
+            mean_epoch_loss = self._train_epoch(data_loader, utilities, storer, epoch)
             self.logger.info('Epoch: {} Average loss per image: {:.2f}'.format(epoch + 1,
                                                                                mean_epoch_loss))
             self.losses_logger.log(epoch, storer)
@@ -101,7 +107,7 @@ class Trainer():
         delta_time = (default_timer() - start) / 60
         self.logger.info('Finished training after {:.1f} min.'.format(delta_time))
 
-    def _train_epoch(self, data_loader, storer, epoch):
+    def _train_epoch(self, data_loader, utilities, storer, epoch):
         """
         Trains the model for one epoch.
 
@@ -125,7 +131,7 @@ class Trainer():
                       disable=not self.is_progress_bar)
         with trange(len(data_loader), **kwargs) as t:
             for _, (data, _) in enumerate(data_loader):
-                iter_loss = self._train_iteration(data, storer)
+                iter_loss = self._train_iteration(data, utilities, storer)
                 epoch_loss += iter_loss
 
                 t.set_postfix(loss=iter_loss)
@@ -134,7 +140,7 @@ class Trainer():
         mean_epoch_loss = epoch_loss / len(data_loader)
         return mean_epoch_loss
 
-    def _train_iteration(self, data, storer):
+    def _train_iteration(self, data, utilities, storer):
         """
         Trains the model for one iteration on a batch of data.
 
@@ -148,10 +154,10 @@ class Trainer():
         """
         batch_size, channel, height, width = data.size()
         data = data.to(self.device)
-
         try:
-            recon_batch, latent_dist, latent_sample = self.model(data)
-            loss = self.loss_f(data, recon_batch, latent_dist, self.model.training,
+            recon_batch, latent_dist, latent_sample, recon_utilities= self.model(data)
+            loss = self.loss_f(data, recon_batch, recon_utilities, utilities,
+                               latent_dist, self.model.training,
                                storer, latent_sample=latent_sample)
             self.optimizer.zero_grad()
             loss.backward()

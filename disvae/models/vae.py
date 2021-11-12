@@ -8,11 +8,13 @@ from torch.nn import functional as F
 from disvae.utils.initialization import weights_init
 from .encoders import get_encoder
 from .decoders import get_decoder
+from .utilities import get_utility 
 
 MODELS = ["Burgess"]
+UTILTIIES = ["Malloy"]
 
 
-def init_specific_model(model_type, img_size, latent_dim):
+def init_specific_model(model_type, utility_type, img_size, latent_dim):
     """Return an instance of a VAE with encoder and decoder from `model_type`."""
     model_type = model_type.lower().capitalize()
     if model_type not in MODELS:
@@ -21,13 +23,14 @@ def init_specific_model(model_type, img_size, latent_dim):
 
     encoder = get_encoder(model_type)
     decoder = get_decoder(model_type)
-    model = VAE(img_size, encoder, decoder, latent_dim)
+    utility = get_utility(utility_type)
+    model = VAE(img_size, encoder, decoder, utility, latent_dim)
     model.model_type = model_type  # store to help reloading
     return model
 
 
 class VAE(nn.Module):
-    def __init__(self, img_size, encoder, decoder, latent_dim):
+    def __init__(self, img_size, encoder, decoder, utility, latent_dim):
         """
         Class which defines model and forward pass.
 
@@ -46,6 +49,7 @@ class VAE(nn.Module):
         self.num_pixels = self.img_size[1] * self.img_size[2]
         self.encoder = encoder(img_size, self.latent_dim)
         self.decoder = decoder(img_size, self.latent_dim)
+        self.utility = utility(self.latent_dim)
 
         self.reset_parameters()
 
@@ -82,7 +86,10 @@ class VAE(nn.Module):
         latent_dist = self.encoder(x)
         latent_sample = self.reparameterize(*latent_dist)
         reconstruct = self.decoder(latent_sample)
-        return reconstruct, latent_dist, latent_sample
+        util_input = torch.cat((latent_dist[0], latent_dist[1]), 1)
+        print(util_input.shape)
+        utility = self.utility(util_input)
+        return reconstruct, latent_dist, latent_sample, utility 
 
     def reset_parameters(self):
         self.apply(weights_init)

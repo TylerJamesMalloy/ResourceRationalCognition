@@ -313,27 +313,37 @@ class Niv(datasets.ImageFolder):
     """
     urls = {"train": "None"}
     files = {"train": "None"}
-    img_size = (1, 64, 64)
+    img_size = (3, 64, 64)
     background_color = COLOUR_WHITE
 
-    def __init__(self, root=os.path.join(DIR, '../data/niv'),
-                 logger=logging.getLogger(__name__)):
-        self.root = root
-        self.train_data = os.path.join(root, type(self).files["stimuli.npy"])
-        self.transforms = transforms.Compose([transforms.Grayscale(),
-                                              transforms.ToTensor()])
-        self.logger = logger
-
-        if not os.path.isdir(root):
-            assert(False)
-            self.logger.info("Downloading {} ...".format(str(type(self))))
-            self.download()
-            self.logger.info("Finished Downloading.")
-
-        super().__init__(self.train_data, transform=self.transforms)
+    def __init__(self, root=os.path.join(DIR, '../data/niv'), **kwargs):
+        super().__init__(root, [transforms.ToTensor()], **kwargs)
+        self.imgs = glob.glob(self.train_data + '/*')
 
     def download(self):
-        assert(False)
+        return
+
+    def __getitem__(self, idx):
+        """Get the image of `idx`
+
+        Return
+        ------
+        sample : torch.Tensor
+            Tensor in [0.,1.] of shape `img_size`.
+
+        placeholder :
+            Placeholder value as their are no targets.
+        """
+        img_path = self.imgs[idx]
+        # img values already between 0 and 255
+        img = imread(img_path)
+
+        # put each pixel in [0.,1.] and reshape to (C x H x W)
+        img = self.transforms(img)
+
+        # no label so return 0 (note that can't return None because)
+        # dataloaders requires so
+        return img, 0
 
 
 class Chairs(datasets.ImageFolder):

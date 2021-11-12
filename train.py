@@ -6,8 +6,8 @@ from configparser import ConfigParser
 
 from disvae import init_specific_model, Trainer, Evaluator
 from disvae.utils.modelIO import save_model, load_model, load_metadata
-from disvae.models.losses import LOSSES, RECON_DIST, get_loss_f
-from disvae.models.vae import MODELS
+from disvae.models.losses import UTIL_LOSSES, LOSSES, RECON_DIST, get_loss_f
+from disvae.models.vae import MODELS, UTILTIIES 
 from utils.datasets import get_dataloaders, get_img_size, DATASETS
 from utils.helpers import (create_safe_directory, get_device, set_seed, get_n_param,
                            get_config_section, update_namespace_, FormatterNoDuplicate)
@@ -79,6 +79,9 @@ def parse_arguments(args_to_parse):
 
     # Model Options
     model = parser.add_argument_group('Model specfic options')
+    model.add_argument('-u', '--utility-type',
+                       default=default_config['utility'], choices=UTILTIIES,
+                       help='Type of utility prediction model to use.')
     model.add_argument('-m', '--model-type',
                        default=default_config['model'], choices=MODELS,
                        help='Type of encoder and decoder to use.')
@@ -88,6 +91,9 @@ def parse_arguments(args_to_parse):
     model.add_argument('-l', '--loss',
                        default=default_config['loss'], choices=LOSSES,
                        help="Type of VAE loss function to use.")
+    model.add_argument('-ul', '--util-loss',
+                       default=default_config['util_loss'], choices=UTIL_LOSSES,
+                       help="Type of Utility loss function to use.")
     model.add_argument('-r', '--rec-dist', default=default_config['rec_dist'],
                        choices=RECON_DIST,
                        help="Form of the likelihood ot use for each pixel.")
@@ -179,7 +185,7 @@ def main(args):
     """
     data = mat["DimTaskData"][0,0]
     # pretrain model or load pretrained on reconstructing stimuli set
-    model = init_specific_model(args.model_type, args.img_size, args.latent_dim)
+    model = init_specific_model(args.model_type, args.utility_type, args.img_size, args.latent_dim)
 
     # retrain and predict 
     for participant_id in range(1):
@@ -200,9 +206,12 @@ def main(args):
 
             # predict all utilities based on model 
             for choice in range(3):
-                image = stimuli[stimulus[choice][0]-1, stimulus[choice][1]-1, stimulus[choice][2]-1, :,:,:]
-                im = Image.fromarray(image)
-                im.show()
+                image = stimuli[stimulus[choice][0]-1, stimulus[choice][1]-1, stimulus[choice][2]-1, :,:,:].transpose()
+                im = th.Tensor([image])
+                reconstruct, latent_dist, latent_sample, utility = model(im)
+
+                print("utility prediction is: ", utility)
+                
 
 
             assert(False)

@@ -14,6 +14,7 @@ from disvae.utils.math import (log_density_gaussian, log_importance_weight_matri
                                matrix_log_density_gaussian)
 
 
+UTIL_LOSSES = ["mse"]
 LOSSES = ["VAE", "betaH", "betaB", "factor", "btcvae"]
 RECON_DIST = ["bernoulli", "laplace", "gaussian"]
 
@@ -68,14 +69,15 @@ class BaseLoss(abc.ABC):
         Number of annealing steps where gradually adding the regularisation.
     """
 
-    def __init__(self, record_loss_every=50, rec_dist="bernoulli", steps_anneal=0):
+    def __init__(self, record_loss_every=50, rec_dist="bernoulli", util_loss="mse", steps_anneal=0):
         self.n_train_steps = 0
         self.record_loss_every = record_loss_every
         self.rec_dist = rec_dist
         self.steps_anneal = steps_anneal
+        self.util_loss = util_loss
 
     @abc.abstractmethod
-    def __call__(self, data, recon_data, latent_dist, is_train, storer, **kwargs):
+    def __call__(self, data, recon_data, utilities, recon_utilities, latent_dist, is_train, storer, **kwargs):
         """
         Calculates loss for a batch of data.
 
@@ -132,20 +134,22 @@ class BetaHLoss(BaseLoss):
         a constrained variational framework." (2016).
     """
 
-    def __init__(self, beta=4, **kwargs):
+    def __init__(self, beta=4, upsilon=1, **kwargs):
         super().__init__(**kwargs)
         self.beta = beta
+        self.upsilon = upsilon
 
-    def __call__(self, data, recon_data, latent_dist, is_train, storer, **kwargs):
+    def __call__(self, data, recon_data, utilities, recon_utilities, latent_dist, is_train, storer, **kwargs):
         storer = self._pre_call(is_train, storer)
-
+        
+        util_loss = _utility_loss(utilities, recon_utilities, util_loss=self.util_loss)
         rec_loss = _reconstruction_loss(data, recon_data,
                                         storer=storer,
                                         distribution=self.rec_dist)
         kl_loss = _kl_normal_loss(*latent_dist, storer)
         anneal_reg = (linear_annealing(0, 1, self.n_train_steps, self.steps_anneal)
                       if is_train else 1)
-        loss = rec_loss + anneal_reg * (self.beta * kl_loss)
+        loss = rec_loss + (self.upsilon * util_loss) + (anneal_reg * (self.beta * kl_loss))
 
         if storer is not None:
             storer['loss'].append(loss.item())
@@ -177,15 +181,17 @@ class BetaBLoss(BaseLoss):
         $\beta$-VAE." arXiv preprint arXiv:1804.03599 (2018).
     """
 
-    def __init__(self, C_init=0., C_fin=20., gamma=100., **kwargs):
+    def __init__(self, C_init=0., C_fin=20., gamma=100., upsilon=1, **kwargs):
         super().__init__(**kwargs)
         self.gamma = gamma
         self.C_init = C_init
         self.C_fin = C_fin
+        self.upsilon=upsilon
 
-    def __call__(self, data, recon_data, latent_dist, is_train, storer, **kwargs):
+    def __call__(self, data, recon_data, utilities, recon_utilities, latent_dist, is_train, storer, **kwargs):
         storer = self._pre_call(is_train, storer)
 
+        util_loss = _utility_loss(utilities, recon_utilities, util_loss=self.util_loss)
         rec_loss = _reconstruction_loss(data, recon_data,
                                         storer=storer,
                                         distribution=self.rec_dist)
@@ -194,7 +200,7 @@ class BetaBLoss(BaseLoss):
         C = (linear_annealing(self.C_init, self.C_fin, self.n_train_steps, self.steps_anneal)
              if is_train else self.C_fin)
 
-        loss = rec_loss + self.gamma * (kl_loss - C).abs()
+        loss = rec_loss + (self.upsilon * util_loss) + self.gamma * (kl_loss - C).abs()
 
         if storer is not None:
             storer['loss'].append(loss.item())
@@ -240,7 +246,7 @@ class FactorKLoss(BaseLoss):
     def __call__(self, *args, **kwargs):
         raise ValueError("Use `call_optimize` to also train the discriminator")
 
-    def call_optimize(self, data, model, optimizer, storer):
+    def call_optimize(self, data, utilities, recon_utilities, model, optimizer, storer):
         storer = self._pre_call(model.training, storer)
 
         # factor-vae split data into two batches. In the paper they sample 2 batches
@@ -258,6 +264,8 @@ class FactorKLoss(BaseLoss):
 
         kl_loss = _kl_normal_loss(*latent_dist, storer)
 
+        util_loss = _utility_loss(utilities, recon_utilities, self.util_loss)
+
         d_z = self.discriminator(latent_sample1)
         # We want log(p_true/p_false). If not using logisitc regression but softmax
         # then p_true = exp(logit_true) / Z; p_false = exp(logit_false) / Z
@@ -267,7 +275,7 @@ class FactorKLoss(BaseLoss):
 
         anneal_reg = (linear_annealing(0, 1, self.n_train_steps, self.steps_anneal)
                       if model.training else 1)
-        vae_loss = rec_loss + kl_loss + anneal_reg * self.gamma * tc_loss
+        vae_loss = rec_loss + (self.upsilon * util_loss) + kl_loss + anneal_reg * self.gamma * tc_loss
 
         if storer is not None:
             storer['loss'].append(vae_loss.item())
@@ -353,7 +361,7 @@ class BtcvaeLoss(BaseLoss):
         self.gamma = gamma
         self.is_mss = is_mss  # minibatch stratified sampling
 
-    def __call__(self, data, recon_batch, latent_dist, is_train, storer,
+    def __call__(self, data, recon_batch, utilities, recon_utilities, latent_dist, is_train, storer,
                  latent_sample=None):
         storer = self._pre_call(is_train, storer)
         batch_size, latent_dim = latent_sample.shape
@@ -374,9 +382,11 @@ class BtcvaeLoss(BaseLoss):
 
         anneal_reg = (linear_annealing(0, 1, self.n_train_steps, self.steps_anneal)
                       if is_train else 1)
+        
+        util_loss = _utility_loss(utilities, recon_utilities, self.util_loss)
 
         # total loss
-        loss = rec_loss + (self.alpha * mi_loss +
+        loss = rec_loss + (self.upsilon * util_loss) + (self.alpha * mi_loss +
                            self.beta * tc_loss +
                            anneal_reg * self.gamma * dw_kl_loss)
 
@@ -389,6 +399,12 @@ class BtcvaeLoss(BaseLoss):
             _ = _kl_normal_loss(*latent_dist, storer)
 
         return loss
+
+def _utility_loss(utilities, recon_utilities, util_loss="mse"):
+    if(util_loss == "mse"):
+        return F.mse_loss(utilities, recon_utilities)
+    else:
+        raise ValueError("Unkown Utility Loss: {}".format(util_loss))
 
 
 def _reconstruction_loss(data, recon_data, distribution="bernoulli", storer=None):
