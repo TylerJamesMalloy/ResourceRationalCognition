@@ -26,6 +26,7 @@ def init_specific_model(model_type, utility_type, img_size, latent_dim):
     utility = get_utility(utility_type)
     model = VAE(img_size, encoder, decoder, utility, latent_dim)
     model.model_type = model_type  # store to help reloading
+    model.utility_type = utility_type  # store to help reloading
     return model
 
 
@@ -87,7 +88,6 @@ class VAE(nn.Module):
         latent_sample = self.reparameterize(*latent_dist)
         reconstruct = self.decoder(latent_sample)
         util_input = torch.cat((latent_dist[0], latent_dist[1]), 1)
-        print(util_input.shape)
         utility = self.utility(util_input)
         return reconstruct, latent_dist, latent_sample, utility 
 

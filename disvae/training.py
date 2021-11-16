@@ -78,11 +78,6 @@ class Trainer():
         checkpoint_every: int, optional
             Save a checkpoint of the trained model every n epoch.
         """
-        if(utilities is None):
-            # load utilities from file 
-            print("Not implemented")
-            utilities = None
-            assert(False)
         start = default_timer()
         self.model.train()
         for epoch in range(epochs):
@@ -154,18 +149,13 @@ class Trainer():
         """
         batch_size, channel, height, width = data.size()
         data = data.to(self.device)
-        try:
-            recon_batch, latent_dist, latent_sample, recon_utilities= self.model(data)
-            loss = self.loss_f(data, recon_batch, recon_utilities, utilities,
-                               latent_dist, self.model.training,
-                               storer, latent_sample=latent_sample)
-            self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
-
-        except ValueError:
-            # for losses that use multiple optimizers (e.g. Factor)
-            loss = self.loss_f.call_optimize(data, self.model, self.optimizer, storer)
+        recon_batch, latent_dist, latent_sample, recon_utilities = self.model(data)
+        loss = self.loss_f(data, recon_batch, utilities, recon_utilities,
+                            latent_dist, self.model.training,
+                            storer, latent_sample=latent_sample)
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
 
         return loss.item()
 

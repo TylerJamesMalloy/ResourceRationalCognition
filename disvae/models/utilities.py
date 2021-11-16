@@ -52,6 +52,7 @@ class UtilityMalloy(nn.Module):
     def forward(self, x):
         batch_size = x.size(0)
 
+        x = x.view((batch_size, -1))
         # Fully connected layers with ReLu activations
         x = torch.relu(self.lin1(x))
         x = torch.relu(self.lin2(x))
@@ -59,7 +60,7 @@ class UtilityMalloy(nn.Module):
         # Fully connected layer for log variance and mean
         # Log std-dev in paper (bear in mind)
         mu_logvar = self.mu_logvar_gen(x)
-        mu, logvar = mu_logvar.view(2 * self.utility_out)
+        mu, logvar = mu_logvar.view(-1, self.utility_out * 2).unbind(-1) 
 
         return mu, logvar
 

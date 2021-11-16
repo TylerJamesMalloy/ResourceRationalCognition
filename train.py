@@ -13,11 +13,11 @@ from utils.helpers import (create_safe_directory, get_device, set_seed, get_n_pa
                            get_config_section, update_namespace_, FormatterNoDuplicate)
 from utils.visualize import GifTraversalsTraining
 
+import torch 
 from torch import optim
 import pandas as pd 
 import numpy as np 
 from scipy import io 
-import torch as th 
 from PIL import Image, ImageDraw
 
 CONFIG_FILE = "hyperparam.ini"
@@ -79,7 +79,7 @@ def parse_arguments(args_to_parse):
 
     # Model Options
     model = parser.add_argument_group('Model specfic options')
-    model.add_argument('-u', '--utility-type',
+    model.add_argument('-ut', '--utility-type',
                        default=default_config['utility'], choices=UTILTIIES,
                        help='Type of utility prediction model to use.')
     model.add_argument('-m', '--model-type',
@@ -102,6 +102,10 @@ def parse_arguments(args_to_parse):
                        help="Number of annealing steps where gradually adding the regularisation. What is annealed is specific to each loss.")
 
     # Loss Specific Options
+    utility = parser.add_argument_group('BetaH specific parameters')
+    utility.add_argument('-u', '--upsilon', type=float,
+                       default=default_config['upsilon'],
+                       help="Weight of the utility loss parameter.")
     betaH = parser.add_argument_group('BetaH specific parameters')
     betaH.add_argument('--betaH-B', type=float,
                        default=default_config['betaH_B'],
@@ -173,7 +177,7 @@ def parse_arguments(args_to_parse):
 
 def main(args):
     args.img_size = get_img_size(args.dataset)
-    stimuli = np.load("./data/niv/stimuli.npy").reshape((3,3,3,64,64,3))
+    stimuli_images = np.load("./data/niv/train.npy").reshape((3,3,3,64,64,3))
     mat = io.loadmat('./data/niv/responses/BehavioralDataOnline.mat')
     """
     Choices - choices (800 trials x 3 features x 22 subjects), NaN for missed trials 
@@ -184,8 +188,61 @@ def main(args):
     ReactionTimes - reaction times (800 trials x 22 subjects), NaN for missed trials
     """
     data = mat["DimTaskData"][0,0]
-    # pretrain model or load pretrained on reconstructing stimuli set
-    model = init_specific_model(args.model_type, args.utility_type, args.img_size, args.latent_dim)
+
+    formatter = logging.Formatter('%(asctime)s %(levelname)s - %(funcName)s: %(message)s',
+                                  "%H:%M:%S")
+    logger = logging.getLogger(__name__)
+    logger.setLevel(args.log_level.upper())
+    stream = logging.StreamHandler()
+    stream.setLevel(args.log_level.upper())
+    stream.setFormatter(formatter)
+    logger.addHandler(stream)
+
+    set_seed(args.seed)
+    device = get_device(is_gpu=not args.no_cuda)
+    exp_dir = os.path.join(RES_DIR, args.name)
+    logger.info("Root directory for saving and loading experiments: {}".format(exp_dir))
+    set_seed(args.seed)
+    device = get_device(is_gpu=not args.no_cuda)
+    
+    if(not args.is_eval_only):
+        # pretrain model or load pretrained on reconstructing stimuli set
+        model = init_specific_model(args.model_type, args.utility_type, args.img_size, args.latent_dim)
+        model = model.to(device)  # make sure trainer and viz on same device
+        gif_visualizer = GifTraversalsTraining(model, args.dataset, exp_dir)
+        train_loader = get_dataloaders(args.dataset,
+                                        batch_size=args.batch_size,
+                                        logger=logger)
+        logger.info("Train {} with {} samples".format(args.dataset, len(train_loader.dataset)))
+        optimizer = optim.Adam(model.parameters(), lr=args.lr)
+
+        loss_f = get_loss_f(args.loss,
+                            n_data=len(train_loader.dataset),
+                            device=device,
+                            **vars(args))
+        trainer = Trainer(model, optimizer, loss_f,
+                            device=device,
+                            logger=logger,
+                            save_dir=exp_dir,
+                            is_progress_bar=not args.no_progress_bar,
+                            gif_visualizer=gif_visualizer)
+        utilities = torch.from_numpy(np.ones((27))*0.5)
+        trainer(train_loader,
+                utilities=utilities, 
+                epochs=args.epochs,
+                checkpoint_every=args.checkpoint_every,)
+
+        # SAVE MODEL AND EXPERIMENT INFORMATION
+        save_model(trainer.model, exp_dir, metadata=vars(args))
+    
+    model = load_model(exp_dir, is_gpu=not args.no_cuda)
+
+    trainer = Trainer(model, optimizer, loss_f,
+                            device=device,
+                            logger=logger,
+                            save_dir=exp_dir,
+                            is_progress_bar=not args.no_progress_bar,
+                            gif_visualizer=gif_visualizer)
 
     # retrain and predict 
     for participant_id in range(1):
@@ -205,12 +262,19 @@ def main(args):
             reaction = ReactionTimes[trial]
 
             # predict all utilities based on model 
-            for choice in range(3):
-                image = stimuli[stimulus[choice][0]-1, stimulus[choice][1]-1, stimulus[choice][2]-1, :,:,:].transpose()
-                im = th.Tensor([image])
-                reconstruct, latent_dist, latent_sample, utility = model(im)
 
-                print("utility prediction is: ", utility)
+            npy = np.expand_dims(stimuli_images[stimulus[1][0]-1, stimulus[1][1]-1, stimulus[1][2]-1, :,:,:].transpose() / 255, axis=0)
+            im = torch.Tensor(npy)
+            recons, latent_dists, latent_samples, utilities = model(im)
+
+            recon1 = np.transpose((recons[0].detach().numpy() * 255).astype(np.uint8), (1,2,0)).astype(np.uint8)
+            Image.fromarray(recon1).show()
+
+            original = np.transpose((im[0].detach().numpy() * 255).astype(np.uint8), (1,2,0)).astype(np.uint8)
+            Image.fromarray(original).show()
+
+            print("utility prediction is: ", utilities)
+            assert(False)
                 
 
 

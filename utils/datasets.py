@@ -48,7 +48,7 @@ def get_background(dataset):
 
 
 def get_dataloaders(dataset, root=None, shuffle=True, pin_memory=True,
-                    batch_size=128, logger=logging.getLogger(__name__), **kwargs):
+                    batch_size=16, logger=logging.getLogger(__name__), **kwargs):
     """A generic data loader
 
     Parameters
@@ -291,7 +291,7 @@ class CelebA(DisentangledDataset):
         # dataloaders requires so
         return img, 0
 
-class Niv(datasets.ImageFolder):
+class Niv(DisentangledDataset):
     """Niv Dataset from [1].
 
         Notes
@@ -300,15 +300,13 @@ class Niv(datasets.ImageFolder):
 
         Parameters
         ----------
-        root : string
-            Root directory of dataset.
-
         References
         ----------
-        [1] Aubry, M., Maturana, D., Efros, A. A., Russell, B. C., & Sivic, J. (2014).
-            Seeing 3d chairs: exemplar part-based 2d-3d alignment using a large dataset
-            of cad models. In Proceedings of the IEEE conference on computer vision
-            and pattern recognition (pp. 3762-3769).
+        [1] Reinforcement learning in multidimensional environments relies on attention mechanisms
+            Y Niv, R Daniel, A Geana, SJ Gershman… - Journal of …, 2015 - Soc Neuroscience
+            In recent years, ideas from the computational field of reinforcement learning have
+            revolutionized the study of learning in the brain, famously providing new, precise theories of
+            how dopamine affects learning in the basal ganglia
 
     """
     urls = {"train": "None"}
@@ -316,9 +314,11 @@ class Niv(datasets.ImageFolder):
     img_size = (3, 64, 64)
     background_color = COLOUR_WHITE
 
-    def __init__(self, root=os.path.join(DIR, '../data/niv'), **kwargs):
+    def __init__(self, root=os.path.join(DIR, '../data/niv/'), **kwargs):
         super().__init__(root, [transforms.ToTensor()], **kwargs)
-        self.imgs = glob.glob(self.train_data + '/*')
+        self.train_data = root + "/train.npy"
+        self.imgs = np.load(self.train_data)
+        print(self.imgs.shape)
 
     def download(self):
         return
@@ -334,11 +334,9 @@ class Niv(datasets.ImageFolder):
         placeholder :
             Placeholder value as their are no targets.
         """
-        img_path = self.imgs[idx]
-        # img values already between 0 and 255
-        img = imread(img_path)
+        img = self.imgs[idx]
 
-        # put each pixel in [0.,1.] and reshape to (C x H x W)
+        # change to a tensor
         img = self.transforms(img)
 
         # no label so return 0 (note that can't return None because)

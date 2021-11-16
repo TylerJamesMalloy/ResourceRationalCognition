@@ -14,7 +14,7 @@ from disvae.utils.math import (log_density_gaussian, log_importance_weight_matri
                                matrix_log_density_gaussian)
 
 
-UTIL_LOSSES = ["mse"]
+UTIL_LOSSES = ["gaussian"]
 LOSSES = ["VAE", "betaH", "betaB", "factor", "btcvae"]
 RECON_DIST = ["bernoulli", "laplace", "gaussian"]
 
@@ -25,25 +25,28 @@ def get_loss_f(loss_name, **kwargs_parse):
     kwargs_all = dict(rec_dist=kwargs_parse["rec_dist"],
                       steps_anneal=kwargs_parse["reg_anneal"])
     if loss_name == "betaH":
-        return BetaHLoss(beta=kwargs_parse["betaH_B"], **kwargs_all)
+        return BetaHLoss(beta=kwargs_parse["betaH_B"], upsilon=kwargs_parse["upsilon"], **kwargs_all)
     elif loss_name == "VAE":
-        return BetaHLoss(beta=1, **kwargs_all)
+        return BetaHLoss(beta=1, upsilon=kwargs_parse["upsilon"], **kwargs_all)
     elif loss_name == "betaB":
         return BetaBLoss(C_init=kwargs_parse["betaB_initC"],
                          C_fin=kwargs_parse["betaB_finC"],
                          gamma=kwargs_parse["betaB_G"],
+                         upsilon=kwargs_parse["upsilon"],
                          **kwargs_all)
     elif loss_name == "factor":
         return FactorKLoss(kwargs_parse["device"],
                            gamma=kwargs_parse["factor_G"],
                            disc_kwargs=dict(latent_dim=kwargs_parse["latent_dim"]),
                            optim_kwargs=dict(lr=kwargs_parse["lr_disc"], betas=(0.5, 0.9)),
+                           upsilon=kwargs_parse["upsilon"],
                            **kwargs_all)
     elif loss_name == "btcvae":
         return BtcvaeLoss(kwargs_parse["n_data"],
                           alpha=kwargs_parse["btcvae_A"],
                           beta=kwargs_parse["btcvae_B"],
                           gamma=kwargs_parse["btcvae_G"],
+                          upsilon=kwargs_parse["upsilon"],
                           **kwargs_all)
     else:
         assert loss_name not in LOSSES
@@ -69,7 +72,7 @@ class BaseLoss(abc.ABC):
         Number of annealing steps where gradually adding the regularisation.
     """
 
-    def __init__(self, record_loss_every=50, rec_dist="bernoulli", util_loss="mse", steps_anneal=0):
+    def __init__(self, record_loss_every=50, rec_dist="bernoulli", util_loss="gaussian", steps_anneal=0):
         self.n_train_steps = 0
         self.record_loss_every = record_loss_every
         self.rec_dist = rec_dist
@@ -400,11 +403,20 @@ class BtcvaeLoss(BaseLoss):
 
         return loss
 
-def _utility_loss(utilities, recon_utilities, util_loss="mse"):
-    if(util_loss == "mse"):
-        return F.mse_loss(utilities, recon_utilities)
+def _utility_loss(utilities, recon_utilities, util_loss="gaussian", storer=None):
+    if (utilities is None or recon_utilities is None):
+        loss = 0
+    if(util_loss == "gaussian"):
+        vars = torch.exp(recon_utilities[1])
+        lf = nn.GaussianNLLLoss()
+        loss = lf(utilities, recon_utilities[0], vars)
     else:
-        raise ValueError("Unkown Utility Loss: {}".format(util_loss))
+        loss = ValueError("Unkown Utility Loss: {}".format(util_loss))
+    
+    if storer is not None:
+        storer['recon_loss'].append(loss.item())
+    
+    return loss 
 
 
 def _reconstruction_loss(data, recon_data, distribution="bernoulli", storer=None):
