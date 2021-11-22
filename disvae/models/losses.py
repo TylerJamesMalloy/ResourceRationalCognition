@@ -407,9 +407,16 @@ def _utility_loss(utilities, recon_utilities, util_loss="gaussian", storer=None)
     if (utilities is None or recon_utilities is None):
         loss = 0
     if(util_loss == "gaussian"):
-        vars = torch.exp(recon_utilities[1])
+        lf = nn.MSELoss()
+        loss = lf(utilities, recon_utilities)
+        #"utilities: ", utilities)
+        #print("recon_utilities: ", recon_utilities)
+        """
+        stds = torch.exp(0.5 * recon_utilities[1])
+        vars = stds ** 2
         lf = nn.GaussianNLLLoss()
-        loss = lf(utilities, recon_utilities[0], vars)
+        loss = lf(recon_utilities[0], utilities, vars)
+        """
     else:
         loss = ValueError("Unkown Utility Loss: {}".format(util_loss))
     

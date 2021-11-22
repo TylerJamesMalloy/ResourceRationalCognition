@@ -57,9 +57,11 @@ class Trainer():
         self.save_dir = save_dir
         self.is_progress_bar = is_progress_bar
         self.logger = logger
-        self.losses_logger = LossesLogger(os.path.join(self.save_dir, TRAIN_LOSSES_LOGFILE))
+        if self.logger is not None: 
+            self.losses_logger = LossesLogger(os.path.join(self.save_dir, TRAIN_LOSSES_LOGFILE))
+            self.logger.info("Training Device: {}".format(self.device))
         self.gif_visualizer = gif_visualizer
-        self.logger.info("Training Device: {}".format(self.device))
+        
 
     def __call__(self, data_loader,
                  utilities=None,
@@ -83,9 +85,9 @@ class Trainer():
         for epoch in range(epochs):
             storer = defaultdict(list)
             mean_epoch_loss = self._train_epoch(data_loader, utilities, storer, epoch)
-            self.logger.info('Epoch: {} Average loss per image: {:.2f}'.format(epoch + 1,
+            if self.logger is not None:  self.logger.info('Epoch: {} Average loss per image: {:.2f}'.format(epoch + 1,
                                                                                mean_epoch_loss))
-            self.losses_logger.log(epoch, storer)
+            if self.logger is not None: self.losses_logger.log(epoch, storer)
 
             if self.gif_visualizer is not None:
                 self.gif_visualizer()
@@ -100,7 +102,7 @@ class Trainer():
         self.model.eval()
 
         delta_time = (default_timer() - start) / 60
-        self.logger.info('Finished training after {:.1f} min.'.format(delta_time))
+        if self.logger is not None: self.logger.info('Finished training after {:.1f} min.'.format(delta_time))
 
     def _train_epoch(self, data_loader, utilities, storer, epoch):
         """
@@ -125,7 +127,7 @@ class Trainer():
         kwargs = dict(desc="Epoch {}".format(epoch + 1), leave=False,
                       disable=not self.is_progress_bar)
         with trange(len(data_loader), **kwargs) as t:
-            for _, (data, _) in enumerate(data_loader):
+            for _, data in enumerate(data_loader):
                 iter_loss = self._train_iteration(data, utilities, storer)
                 epoch_loss += iter_loss
 
@@ -149,6 +151,16 @@ class Trainer():
         """
         batch_size, channel, height, width = data.size()
         data = data.to(self.device)
+        
+        """from PIL import Image
+        import numpy as np 
+        stim = np.transpose(data[1].detach().numpy().astype(np.uint8) * 255, [1, 2, 0])
+        #stim = (data[1].detach().numpy() * 255 ).astype(np.uint8) 
+        print(" stim shape: ", stim.shape)
+        im = Image.fromarray(stim)
+        im.show()
+
+        print(" data shape in train iteration: ", data.shape)"""
         recon_batch, latent_dist, latent_sample, recon_utilities = self.model(data)
         loss = self.loss_f(data, recon_batch, utilities, recon_utilities,
                             latent_dist, self.model.training,

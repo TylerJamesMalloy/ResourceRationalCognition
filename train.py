@@ -2,6 +2,7 @@ import argparse
 import logging
 import sys
 import os
+import copy 
 from configparser import ConfigParser
 
 from disvae import init_specific_model, Trainer, Evaluator
@@ -13,12 +14,16 @@ from utils.helpers import (create_safe_directory, get_device, set_seed, get_n_pa
                            get_config_section, update_namespace_, FormatterNoDuplicate)
 from utils.visualize import GifTraversalsTraining
 
+from torch.utils.data import Dataset, DataLoader
+
 import torch 
 from torch import optim
 import pandas as pd 
 import numpy as np 
 from scipy import io 
 from PIL import Image, ImageDraw
+from matplotlib import pyplot as plt
+import seaborn as sns 
 
 CONFIG_FILE = "hyperparam.ini"
 RES_DIR = "results"
@@ -175,9 +180,86 @@ def parse_arguments(args_to_parse):
 
     return args
 
+STIMULI_IMAGES = np.load("./data/niv/train.npy").reshape((3,3,3,64,64,3))
+
+def predict_utilities(stimuli, model, train_loader):
+    stim_indices = []
+    utilities = []
+    for stim in stimuli: 
+        index = (1 * (stim[2]-1)) + (3 * (stim[1]-1)) + (6 * (stim[0]-1))
+        stim_indices.append(index)
+    
+    for _, data in enumerate(train_loader):
+        #print(data)
+        data_subset = []
+        for stim_index in stim_indices:
+            stim = torch.unsqueeze(data[stim_index], 0) 
+            _, _, _, util = model(stim)
+            utilities.append(util.detach().numpy())
+    
+    return np.array(utilities)
+    assert(False)
+
+    stim1 = np.transpose(STIMULI_IMAGES[stimuli[0][0]-1, stimuli[0][1]-1, stimuli[0][2]-1, :,:,:], [2, 0, 1]) / 255
+    stim2 = np.transpose(STIMULI_IMAGES[stimuli[1][0]-1, stimuli[1][1]-1, stimuli[1][2]-1, :,:,:], [2, 0, 1]) / 255
+    stim3 = np.transpose(STIMULI_IMAGES[stimuli[2][0]-1, stimuli[2][1]-1, stimuli[2][2]-1, :,:,:], [2, 0, 1]) / 255
+    model_input = np.stack((stim1, stim2, stim3))
+    im = torch.Tensor(model_input)
+    recons, latent_dists, latent_samples, utilities = model(im)
+
+    #im = Image.fromarray(STIMULI_IMAGES[stimuli[0][0]-1, stimuli[0][1]-1, stimuli[0][2]-1, :,:,:].astype(np.uint8))
+    #im.show()
+
+    means = utilities[0].detach().numpy()
+    vars = np.exp(utilities[1].detach().numpy())
+
+    # reparam trick 
+    #std = torch.exp(0.5 * logvar)
+    #eps = torch.randn_like(std)
+    #return mean + std * eps
+
+    return means, vars
+
+def get_utilities(choice, outcome):
+    indices = np.ones((27)) * .5
+
+    if(choice[2] == 1): # red
+        indices[0:9] = outcome
+    if(choice[2] == 2): # green
+        indices[9:18] = outcome
+    if(choice[2] == 3): #blue 
+        indices[18:27] = outcome
+    
+    if(choice[1] == 1): # square
+        for i in [0,1,2,9,10,11,18,19,20]:
+            indices[i] = outcome
+    if(choice[1] == 2): # circle
+        for i in [3,4,5,12,13,14,21,22,23]:
+            indices[i] = outcome
+    if(choice[1] == 3): # triangle 
+        for i in [6,7,8,15,16,17,24,25,26]:
+            indices[i] = outcome
+    
+    if(choice[0] == 1): # hatched
+        for i in [0, 3, 6, 9, 12, 15, 18, 21, 24]:
+            indices[i] = outcome
+    if(choice[0] == 2): # wave
+        for i in [1, 4, 7, 10, 13, 16, 19, 22, 25]:
+            indices[i] = outcome
+    if(choice[0] == 3): # dotted 
+        for i in [2, 5, 8, 11, 14, 17, 20, 23, 26]:
+            indices[i] = outcome
+
+    return (torch.from_numpy(indices)).float() 
+
+def get_updated_utilities(features):
+    updated_utilities = np.zeros(27)
+    utility_maps = [[0, 0, 0], [0, 0, 1], [0, 0, 2], [0, 1, 0], [0, 1, 1], [0, 1, 2], [0, 2, 0], [0, 2, 1], [0, 2, 2], [1, 0, 0], [1, 0, 1], [1, 0, 2], [1, 1, 0], [1, 1, 1], [1, 1, 2], [1, 2, 0], [1, 2, 1], [1, 2, 2], [2, 0, 0], [2, 0, 1], [2, 0, 2], [2, 1, 0], [2, 1, 1], [2, 1, 2], [2, 2, 0], [2, 2, 1], [2, 2, 2]]
+    updated_utilities = np.array([np.sum((features[utility_map[0]] , features[utility_map[1]], features[utility_map[2]])) for utility_map in utility_maps])
+    return (torch.from_numpy(updated_utilities)).float() 
+
 def main(args):
     args.img_size = get_img_size(args.dataset)
-    stimuli_images = np.load("./data/niv/train.npy").reshape((3,3,3,64,64,3))
     mat = io.loadmat('./data/niv/responses/BehavioralDataOnline.mat')
     """
     Choices - choices (800 trials x 3 features x 22 subjects), NaN for missed trials 
@@ -226,7 +308,7 @@ def main(args):
                             save_dir=exp_dir,
                             is_progress_bar=not args.no_progress_bar,
                             gif_visualizer=gif_visualizer)
-        utilities = torch.from_numpy(np.ones((27))*0.5)
+        utilities = torch.from_numpy(np.zeros((27)).astype(np.float64)).float()
         trainer(train_loader,
                 utilities=utilities, 
                 epochs=args.epochs,
@@ -236,16 +318,16 @@ def main(args):
         save_model(trainer.model, exp_dir, metadata=vars(args))
     
     model = load_model(exp_dir, is_gpu=not args.no_cuda)
-
-    trainer = Trainer(model, optimizer, loss_f,
-                            device=device,
-                            logger=logger,
-                            save_dir=exp_dir,
-                            is_progress_bar=not args.no_progress_bar,
-                            gif_visualizer=gif_visualizer)
+    model.to(device)
 
     # retrain and predict 
-    for participant_id in range(1):
+    ResponseAccuracy = pd.DataFrame()
+    rl_lr = 0.122
+    sft_inv_temp = 10.33
+    decay = 0.466
+
+
+    for participant_id in range(0,22):
         Choices = data[0][:,:,participant_id]
         Outcomes = data[1][:,participant_id]
         Stimuli = data[2][:,:,:,participant_id]
@@ -253,7 +335,17 @@ def main(args):
         CorrectFeature = data[4][:,participant_id]
         ReactionTimes = data[5][:,participant_id]
 
+        trial_index = 0
+        old_relevant = None 
+        old_correct = None 
+        base_model = copy.deepcopy(model)
+        feature_values = np.zeros(9)
+
         for trial in range(800):
+            choice = Choices[trial]
+            if(np.isnan(choice).any()): 
+                trial_index += 1
+                continue 
             choice = Choices[trial].astype(int)
             outcome = Outcomes[trial]
             stimulus = Stimuli[trial]
@@ -261,27 +353,66 @@ def main(args):
             correct = CorrectFeature[trial]
             reaction = ReactionTimes[trial]
 
+            if( (old_relevant!= None and relevant != old_relevant) or (old_correct != None and old_correct != correct)):
+                trial_index = 0
+                model = base_model
+
+            old_relevant = relevant
+            old_correct = correct
+            trial_index += 1
+
+            train_loader = get_dataloaders(args.dataset, batch_size=args.batch_size)
+
             # predict all utilities based on model 
+            utils = predict_utilities(stimulus, model, train_loader)
 
-            npy = np.expand_dims(stimuli_images[stimulus[1][0]-1, stimulus[1][1]-1, stimulus[1][2]-1, :,:,:].transpose() / 255, axis=0)
-            im = torch.Tensor(npy)
-            recons, latent_dists, latent_samples, utilities = model(im)
+            for option_index, option in enumerate(stimulus):
+                if (option == choice).all: choice_index = option_index
 
-            recon1 = np.transpose((recons[0].detach().numpy() * 255).astype(np.uint8), (1,2,0)).astype(np.uint8)
-            Image.fromarray(recon1).show()
+            chosen_probability = np.exp(utils[choice_index] * sft_inv_temp) / np.sum(np.exp(utils * sft_inv_temp))
+            #print(chosen_probability)
+            
+            ResponseAccuracy = ResponseAccuracy.append({"EpisodeTrial": trial_index, "ParticipantId":  participant_id, "Accuracy":chosen_probability[0]}, ignore_index=True)
+            utilities = get_utilities(choice, outcome)
 
-            original = np.transpose((im[0].detach().numpy() * 255).astype(np.uint8), (1,2,0)).astype(np.uint8)
-            Image.fromarray(original).show()
+            # features (red, green, blue, square, circle, triangle, hatch, wave, dotted)
+            color = choice[0] - 1
+            shape = choice[1] + 2
+            textr = choice[2] + 5
+            for feature_index in range(9):
+                if(feature_index in [color, shape, textr]):
+                    feature_values[feature_index] = feature_values[feature_index] + rl_lr * (outcome - utils[choice_index])
+                else:
+                    feature_values[feature_index] = (1 - decay) * feature_values[feature_index] 
+            
+            updated_utilities = get_updated_utilities(feature_values)
+            
+            optimizer = optim.Adam(model.parameters(), lr=args.lr)
+            loss_f = get_loss_f(args.loss,
+                                    n_data=len(train_loader.dataset),
+                                    device=device,
+                                    **vars(args))
+            trainer = Trainer(model, optimizer, loss_f,
+                                    device=device,
+                                    logger=None,
+                                    save_dir=exp_dir,
+                                    is_progress_bar=False)
+            
+            trainer(train_loader,
+                utilities=updated_utilities, 
+                epochs=100, 
+                checkpoint_every=1)
+            
+            utils = predict_utilities(stimulus, model, train_loader)
 
-            print("utility prediction is: ", utilities)
-            assert(False)
-                
-
-
-            assert(False)
-
-        assert(False)
+    print(ResponseAccuracy)
+    #ResponseAccuracy.plot(x='EpisodeTrial', y='Accuracy')
+    sns.lineplot(data=ResponseAccuracy, x="EpisodeTrial", y="Accuracy")
+    plt.show()
+    #print(np.mean(all_probabilities, axis=0))
 
 if __name__ == '__main__':
     args = parse_arguments(sys.argv[1:])
     main(args)
+
+

@@ -47,7 +47,7 @@ def get_background(dataset):
     return get_dataset(dataset).background_color
 
 
-def get_dataloaders(dataset, root=None, shuffle=True, pin_memory=True,
+def get_dataloaders(dataset, root=None, shuffle=False, pin_memory=True,
                     batch_size=16, logger=logging.getLogger(__name__), **kwargs):
     """A generic data loader
 
@@ -318,7 +318,6 @@ class Niv(DisentangledDataset):
         super().__init__(root, [transforms.ToTensor()], **kwargs)
         self.train_data = root + "/train.npy"
         self.imgs = np.load(self.train_data)
-        print(self.imgs.shape)
 
     def download(self):
         return
@@ -341,7 +340,7 @@ class Niv(DisentangledDataset):
 
         # no label so return 0 (note that can't return None because)
         # dataloaders requires so
-        return img, 0
+        return img
 
 
 class Chairs(datasets.ImageFolder):
