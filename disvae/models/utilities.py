@@ -14,8 +14,8 @@ def get_utility(utility_type):
 
 
 class UtilityMalloy(nn.Module):
-    def __init__(self, latent_dim=10):
-        r"""Encoder of the model proposed in [1].
+    def __init__(self, latent_dim=20):
+        r"""Utility prediction submodule of the model proposed in [1].
 
         Parameters
         ----------
@@ -25,8 +25,8 @@ class UtilityMalloy(nn.Module):
 
         Model Architecture 
         ------------
-        - Model Input: 20 units (log variance and mean for 10 Gaussians)
-        - 2 fully connected layers (each with 256 hidden values)
+        - Model Input: 2*N units (log variance and mean for N Gaussians)
+        - 2 fully connected layers (each with 64 hidden values)
         - Model Output: 1 utility prediction 
         
 
@@ -38,7 +38,7 @@ class UtilityMalloy(nn.Module):
         super(UtilityMalloy, self).__init__()
 
         # Layer parameters
-        hidden_dim = 256
+        hidden_dim = 64
         self.latent_dim = latent_dim # model input 
         self.utility_out = 1 # number of utility predictions 
 

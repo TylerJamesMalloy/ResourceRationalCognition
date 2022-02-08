@@ -5,6 +5,9 @@ import os
 import copy 
 from configparser import ConfigParser
 
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
+
 from disvae import init_specific_model, Trainer, Evaluator
 from disvae.utils.modelIO import save_model, load_model, load_metadata
 from disvae.models.losses import UTIL_LOSSES, LOSSES, RECON_DIST, get_loss_f
@@ -25,6 +28,9 @@ from PIL import Image, ImageDraw
 from matplotlib import pyplot as plt
 import seaborn as sns 
 
+import math 
+from models.learning.frl import Feature_RL, frl_env
+
 CONFIG_FILE = "hyperparam.ini"
 RES_DIR = "results"
 LOG_LEVELS = list(logging._levelToName.values())
@@ -32,7 +38,42 @@ ADDITIONAL_EXP = ['custom', "debug", "best_celeba", "best_dsprites"]
 EXPERIMENTS = ADDITIONAL_EXP + ["{}_{}".format(loss, data)
                                 for loss in LOSSES
                                 for data in DATASETS]
+FEATURE_MAP = [[0, 0, 0], [0, 0, 1], [0, 0, 2], [0, 1, 0], [0, 1, 1], [0, 1, 2], [0, 2, 0], [0, 2, 1], [0, 2, 2], [1, 0, 0], [1, 0, 1], [1, 0, 2], [1, 1, 0], [1, 1, 1], [1, 1, 2], [1, 2, 0], [1, 2, 1], [1, 2, 2], [2, 0, 0], [2, 0, 1], [2, 0, 2], [2, 1, 0], [2, 1, 1], [2, 1, 2], [2, 2, 0], [2, 2, 1], [2, 2, 2]]
 
+def predict_utilities(stimuli, model, train_loader, inv_temp):
+    stim_indices = []
+    utilities = []
+    for stim in stimuli: 
+        for feature_index, features  in enumerate(FEATURE_MAP):
+            if(all(np.array(stim)-1==features)):
+                index=feature_index
+        stim_indices.append(index)
+    #print("stim indicies: ", stim_indices)
+    for _, data in enumerate(train_loader):
+        data_subset = []
+        for stim_index in stim_indices:
+            stim = torch.unsqueeze(data[stim_index], 0) 
+            #im = np.transpose((data[stim_index].detach().numpy() * 255).astype(np.uint8), [1, 2, 0]) 
+            #im = Image.fromarray(im)
+            #im.show()
+            _, _, _, util = model(stim)
+            utilities.append(util.detach().numpy())
+    
+    utilities = np.array(utilities).clip(min=0) + 1e-6
+    values = np.array([math.exp(inv_temp * utilities[stim_index]) for stim_index in range(3)])
+    value_softmax = [values[0] / sum(values), values[1] / sum(values), values[2] / sum(values)]
+
+    #print(" Utilities: ", utilities)
+    #print(" Values: ", values)
+    
+    guess = np.random.choice([0,1,2], 1, p=[value_softmax[0], value_softmax[1], value_softmax[2]])[0]
+    prediction = stimuli[guess]
+
+    return (prediction, guess, [value_softmax[0], value_softmax[1], value_softmax[2]])
+
+def get_updated_utilities(features):
+    updated_utilities = np.array([np.sum((features[feature[0]] , features[feature[1] + 3], features[feature[2] + 6])) for feature in FEATURE_MAP])
+    return (torch.from_numpy(updated_utilities)).float() 
 
 def parse_arguments(args_to_parse):
     """Parse the command line arguments.
@@ -146,7 +187,7 @@ def parse_arguments(args_to_parse):
                         default=default_config['btcvae_B'],
                         help="Weight of the TC term (beta in the paper).")
 
-    # Learning options
+    # Eval options
     evaluation = parser.add_argument_group('Evaluation specific options')
     evaluation.add_argument('--is-eval-only', action='store_true',
                             default=default_config['is_eval_only'],
@@ -160,6 +201,11 @@ def parse_arguments(args_to_parse):
     evaluation.add_argument('--eval-batchsize', type=int,
                             default=default_config['eval_batchsize'],
                             help='Batch size for evaluation.')
+    
+    modelling = parser.add_argument_group('L&DM modelling specific options')
+    modelling.add_argument('--model-epochs', type=int,
+                            default=default_config['model_epochs'],
+                            help='Number of epochs to train utility prediction model.')
 
     args = parser.parse_args(args_to_parse)
     if args.experiment != 'custom':
@@ -180,84 +226,6 @@ def parse_arguments(args_to_parse):
 
     return args
 
-STIMULI_IMAGES = np.load("./data/niv/train.npy").reshape((3,3,3,64,64,3))
-
-def predict_utilities(stimuli, model, train_loader):
-    stim_indices = []
-    utilities = []
-    for stim in stimuli: 
-        index = (1 * (stim[2]-1)) + (3 * (stim[1]-1)) + (6 * (stim[0]-1))
-        stim_indices.append(index)
-    
-    for _, data in enumerate(train_loader):
-        #print(data)
-        data_subset = []
-        for stim_index in stim_indices:
-            stim = torch.unsqueeze(data[stim_index], 0) 
-            _, _, _, util = model(stim)
-            utilities.append(util.detach().numpy())
-    
-    return np.array(utilities)
-    assert(False)
-
-    stim1 = np.transpose(STIMULI_IMAGES[stimuli[0][0]-1, stimuli[0][1]-1, stimuli[0][2]-1, :,:,:], [2, 0, 1]) / 255
-    stim2 = np.transpose(STIMULI_IMAGES[stimuli[1][0]-1, stimuli[1][1]-1, stimuli[1][2]-1, :,:,:], [2, 0, 1]) / 255
-    stim3 = np.transpose(STIMULI_IMAGES[stimuli[2][0]-1, stimuli[2][1]-1, stimuli[2][2]-1, :,:,:], [2, 0, 1]) / 255
-    model_input = np.stack((stim1, stim2, stim3))
-    im = torch.Tensor(model_input)
-    recons, latent_dists, latent_samples, utilities = model(im)
-
-    #im = Image.fromarray(STIMULI_IMAGES[stimuli[0][0]-1, stimuli[0][1]-1, stimuli[0][2]-1, :,:,:].astype(np.uint8))
-    #im.show()
-
-    means = utilities[0].detach().numpy()
-    vars = np.exp(utilities[1].detach().numpy())
-
-    # reparam trick 
-    #std = torch.exp(0.5 * logvar)
-    #eps = torch.randn_like(std)
-    #return mean + std * eps
-
-    return means, vars
-
-def get_utilities(choice, outcome):
-    indices = np.ones((27)) * .5
-
-    if(choice[2] == 1): # red
-        indices[0:9] = outcome
-    if(choice[2] == 2): # green
-        indices[9:18] = outcome
-    if(choice[2] == 3): #blue 
-        indices[18:27] = outcome
-    
-    if(choice[1] == 1): # square
-        for i in [0,1,2,9,10,11,18,19,20]:
-            indices[i] = outcome
-    if(choice[1] == 2): # circle
-        for i in [3,4,5,12,13,14,21,22,23]:
-            indices[i] = outcome
-    if(choice[1] == 3): # triangle 
-        for i in [6,7,8,15,16,17,24,25,26]:
-            indices[i] = outcome
-    
-    if(choice[0] == 1): # hatched
-        for i in [0, 3, 6, 9, 12, 15, 18, 21, 24]:
-            indices[i] = outcome
-    if(choice[0] == 2): # wave
-        for i in [1, 4, 7, 10, 13, 16, 19, 22, 25]:
-            indices[i] = outcome
-    if(choice[0] == 3): # dotted 
-        for i in [2, 5, 8, 11, 14, 17, 20, 23, 26]:
-            indices[i] = outcome
-
-    return (torch.from_numpy(indices)).float() 
-
-def get_updated_utilities(features):
-    updated_utilities = np.zeros(27)
-    utility_maps = [[0, 0, 0], [0, 0, 1], [0, 0, 2], [0, 1, 0], [0, 1, 1], [0, 1, 2], [0, 2, 0], [0, 2, 1], [0, 2, 2], [1, 0, 0], [1, 0, 1], [1, 0, 2], [1, 1, 0], [1, 1, 1], [1, 1, 2], [1, 2, 0], [1, 2, 1], [1, 2, 2], [2, 0, 0], [2, 0, 1], [2, 0, 2], [2, 1, 0], [2, 1, 1], [2, 1, 2], [2, 2, 0], [2, 2, 1], [2, 2, 2]]
-    updated_utilities = np.array([np.sum((features[utility_map[0]] , features[utility_map[1]], features[utility_map[2]])) for utility_map in utility_maps])
-    return (torch.from_numpy(updated_utilities)).float() 
-
 def main(args):
     args.img_size = get_img_size(args.dataset)
     mat = io.loadmat('./data/niv/responses/BehavioralDataOnline.mat')
@@ -270,6 +238,24 @@ def main(args):
     ReactionTimes - reaction times (800 trials x 22 subjects), NaN for missed trials
     """
     data = mat["DimTaskData"][0,0]
+    Choices = mat['DimTaskData'][0][0]['Choices']
+    Outcomes = mat['DimTaskData'][0][0]['Outcomes']
+    Stimuli = mat['DimTaskData'][0][0]['Stimuli']
+    RelevantDim = mat['DimTaskData'][0][0]['RelevantDim']
+    CorrectFeature = mat['DimTaskData'][0][0]['CorrectFeature']
+    ReactionTimes = mat['DimTaskData'][0][0]['ReactionTimes']
+    Feature_Thetas_500, Feature_Thetas_300 = Feature_RL.get_thetas()
+
+    # retrain and predict 
+    ResponseAccuracy = pd.DataFrame()
+    states = np.matrix([
+    [1,2,3],
+    [1,2,3],
+    [1,2,3]
+    ])
+
+    actions = np.linspace(0,1,num=1)
+    env = frl_env(states=states, actions=actions, rewards=[])
 
     formatter = logging.Formatter('%(asctime)s %(levelname)s - %(funcName)s: %(message)s',
                                   "%H:%M:%S")
@@ -283,6 +269,7 @@ def main(args):
     set_seed(args.seed)
     device = get_device(is_gpu=not args.no_cuda)
     exp_dir = os.path.join(RES_DIR, args.name)
+    if(not os.path.exists(exp_dir)): os.mkdir(exp_dir)
     logger.info("Root directory for saving and loading experiments: {}".format(exp_dir))
     set_seed(args.seed)
     device = get_device(is_gpu=not args.no_cuda)
@@ -308,7 +295,8 @@ def main(args):
                             save_dir=exp_dir,
                             is_progress_bar=not args.no_progress_bar,
                             gif_visualizer=gif_visualizer)
-        utilities = torch.from_numpy(np.zeros((27)).astype(np.float64)).float()
+        utilities = np.ones((27))* 0.5
+        utilities = torch.from_numpy(utilities.astype(np.float64)).float()
         trainer(train_loader,
                 utilities=utilities, 
                 epochs=args.epochs,
@@ -319,73 +307,107 @@ def main(args):
     
     model = load_model(exp_dir, is_gpu=not args.no_cuda)
     model.to(device)
+    #base_model = copy.deepcopy(model)
 
-    # retrain and predict 
-    ResponseAccuracy = pd.DataFrame()
-    rl_lr = 0.122
-    sft_inv_temp = 10.33
-    decay = 0.466
+    # 0,22 standard full participant range 
+    for participant_id in range(2,6):
+        alpha_300 = Feature_Thetas_300[participant_id][0] 
+        beta_300 = Feature_Thetas_300[participant_id][1] 
+        delta_300 = Feature_Thetas_300[participant_id][2] 
 
+        alpha_500 = Feature_Thetas_500[participant_id][0] 
+        beta_500 = Feature_Thetas_500[participant_id][1] 
+        delta_500 = Feature_Thetas_500[participant_id][2] 
 
-    for participant_id in range(0,22):
-        Choices = data[0][:,:,participant_id]
-        Outcomes = data[1][:,participant_id]
-        Stimuli = data[2][:,:,:,participant_id]
-        RelevantDim = data[3][:,participant_id]
-        CorrectFeature = data[4][:,participant_id]
-        ReactionTimes = data[5][:,participant_id]
+        feature_rl_300 = Feature_RL(env, eta = alpha_300, delta = delta_300, beta = beta_300)
+        feature_rl_500 = Feature_RL(env, eta = alpha_500, delta = delta_500, beta = beta_500)
 
-        trial_index = 0
-        old_relevant = None 
-        old_correct = None 
-        base_model = copy.deepcopy(model)
-        feature_values = np.zeros(9)
+        last_prediction = -1
+        old_relevant = -1
 
-        for trial in range(800):
-            choice = Choices[trial]
-            if(np.isnan(choice).any()): 
-                trial_index += 1
+        for trial_num in range(0,800):
+            color_feature_1 = Stimuli[trial_num][0][0][participant_id]
+            shape_feature_1 = Stimuli[trial_num][0][1][participant_id]
+            texture_feature_1 = Stimuli[trial_num][0][2][participant_id] 
+            color_feature_2 = Stimuli[trial_num][1][0][participant_id]
+            shape_feature_2 = Stimuli[trial_num][1][1][participant_id] 
+            texture_feature_2 = Stimuli[trial_num][1][2][participant_id] 
+            color_feature_3 = Stimuli[trial_num][2][0][participant_id] 
+            shape_feature_3 = Stimuli[trial_num][2][1][participant_id] 
+            texture_feature_3 = Stimuli[trial_num][2][2][participant_id] 
+
+            relevant = RelevantDim[trial_num][participant_id]
+            correct = CorrectFeature[trial_num][participant_id]
+            outcome = Outcomes[trial_num][participant_id]
+
+            if(math.isnan(Choices[trial_num][0][participant_id])):
                 continue 
-            choice = Choices[trial].astype(int)
-            outcome = Outcomes[trial]
-            stimulus = Stimuli[trial]
-            relevant = RelevantDim[trial]
-            correct = CorrectFeature[trial]
-            reaction = ReactionTimes[trial]
 
-            if( (old_relevant!= None and relevant != old_relevant) or (old_correct != None and old_correct != correct)):
-                trial_index = 0
-                model = base_model
-
-            old_relevant = relevant
-            old_correct = correct
-            trial_index += 1
-
-            train_loader = get_dataloaders(args.dataset, batch_size=args.batch_size)
-
-            # predict all utilities based on model 
-            utils = predict_utilities(stimulus, model, train_loader)
+            chosen = [
+                int(Choices[trial_num][0][participant_id]),
+                int(Choices[trial_num][1][participant_id]),
+                int(Choices[trial_num][2][participant_id])
+            ]
+            
+            stimulus = [
+                [color_feature_1, shape_feature_1, texture_feature_1],
+                [color_feature_2, shape_feature_2, texture_feature_2],
+                [color_feature_3, shape_feature_3, texture_feature_3]
+            ]
 
             for option_index, option in enumerate(stimulus):
-                if (option == choice).all: choice_index = option_index
-
-            chosen_probability = np.exp(utils[choice_index] * sft_inv_temp) / np.sum(np.exp(utils * sft_inv_temp))
-            #print(chosen_probability)
+                if (option == chosen): choice_index = option_index
             
-            ResponseAccuracy = ResponseAccuracy.append({"EpisodeTrial": trial_index, "ParticipantId":  participant_id, "Accuracy":chosen_probability[0]}, ignore_index=True)
-            utilities = get_utilities(choice, outcome)
+            if(relevant != old_relevant):
+                feature_rl_300.reset()
+                feature_rl_500.reset()
+                trial_game_index = 0
+                # Resetting model completely negatively impacts predictive accuracy
+                # model = copy.deepcopy(base_model)
 
-            # features (red, green, blue, square, circle, triangle, hatch, wave, dotted)
-            color = choice[0] - 1
-            shape = choice[1] + 2
-            textr = choice[2] + 5
-            for feature_index in range(9):
-                if(feature_index in [color, shape, textr]):
-                    feature_values[feature_index] = feature_values[feature_index] + rl_lr * (outcome - utils[choice_index])
-                else:
-                    feature_values[feature_index] = (1 - decay) * feature_values[feature_index] 
+            prediction_outcome = True
+            if(trial_num >= 500):
+                (prediction, guess, percentages) = feature_rl_300.predict(stimulus)
+                #print(guess)
+                # ADD to dataframe 
+                feature_rl_300.forget(chosen)
+                feature_rl_300.train_state_reward(chosen, outcome)
+                feature_values = feature_rl_300.q_table
+
+            else: 
+                (prediction, guess, percentages) = feature_rl_500.predict(stimulus)
+                feature_rl_500.forget(chosen)
+                feature_rl_500.train_state_reward(chosen, outcome)
+                feature_values = feature_rl_500.q_table
             
-            updated_utilities = get_updated_utilities(feature_values)
+            frl_chosen_percentage = percentages[choice_index]
+            
+            train_loader = get_dataloaders(args.dataset, batch_size=args.batch_size)
+            inv_temp = beta_300 if trial_num >= 500 else beta_500
+            (prediction, guess, bvae_percentages) = predict_utilities(stimulus, model, train_loader, inv_temp=inv_temp)
+            bvae_chosen_percentage = bvae_percentages[choice_index]
+
+
+            if(trial_game_index < 25):
+                ResponseAccuracy = ResponseAccuracy.append({    "EpisodeTrial": trial_game_index, 
+                                                                "ParticipantId":  participant_id, 
+                                                                "Accuracy":frl_chosen_percentage, 
+                                                                "Model Type":"FRL",
+                                                                "Beta":0,
+                                                                "Correct":correct}, ignore_index=True)
+                
+                ResponseAccuracy = ResponseAccuracy.append({    "EpisodeTrial": trial_game_index, 
+                                                                "ParticipantId":  participant_id, 
+                                                                "Accuracy":bvae_chosen_percentage, 
+                                                                "Model Type":"BVAE",
+                                                                "Beta":args.betaH_B,
+                                                                "Correct":correct}, ignore_index=True)
+
+            trial_game_index += 1
+            old_relevant = relevant
+
+            updated_utilities = get_updated_utilities(feature_values.flatten())
+            #print("updated_utilities: ", updated_utilities)
             
             optimizer = optim.Adam(model.parameters(), lr=args.lr)
             loss_f = get_loss_f(args.loss,
@@ -398,18 +420,23 @@ def main(args):
                                     save_dir=exp_dir,
                                     is_progress_bar=False)
             
+            epochs = args.model_epochs if trial_game_index > 1 else 100
             trainer(train_loader,
                 utilities=updated_utilities, 
-                epochs=100, 
-                checkpoint_every=1)
-            
-            utils = predict_utilities(stimulus, model, train_loader)
+                epochs=epochs, 
+                checkpoint_every=10000)
 
     print(ResponseAccuracy)
     #ResponseAccuracy.plot(x='EpisodeTrial', y='Accuracy')
-    sns.lineplot(data=ResponseAccuracy, x="EpisodeTrial", y="Accuracy")
+    ax = sns.lineplot(data=ResponseAccuracy, x="EpisodeTrial", y="Accuracy", hue="Model Type")
+    ax.set_title('10 Model Epochs, no model resetting, 100 trains on game reset (' + str(args.model_epochs) + 'Epochs)')
+    ax.set_ylabel('Predictive Accuracy')
+    ax.set_xlabel('Episode Trial')
     plt.show()
     #print(np.mean(all_probabilities, axis=0))
+
+    ResponseAccuracy.to_pickle(exp_dir + "./Predictions.pkl") 
+    # add file with all arguments: 
 
 if __name__ == '__main__':
     args = parse_arguments(sys.argv[1:])

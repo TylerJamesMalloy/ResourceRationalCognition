@@ -14,7 +14,7 @@ from disvae.utils.math import (log_density_gaussian, log_importance_weight_matri
                                matrix_log_density_gaussian)
 
 
-UTIL_LOSSES = ["gaussian"]
+UTIL_LOSSES = ["mse", "L1"]
 LOSSES = ["VAE", "betaH", "betaB", "factor", "btcvae"]
 RECON_DIST = ["bernoulli", "laplace", "gaussian"]
 
@@ -23,7 +23,8 @@ RECON_DIST = ["bernoulli", "laplace", "gaussian"]
 def get_loss_f(loss_name, **kwargs_parse):
     """Return the correct loss function given the argparse arguments."""
     kwargs_all = dict(rec_dist=kwargs_parse["rec_dist"],
-                      steps_anneal=kwargs_parse["reg_anneal"])
+                      steps_anneal=kwargs_parse["reg_anneal"],
+                      util_loss=kwargs_parse["util_loss"])
     if loss_name == "betaH":
         return BetaHLoss(beta=kwargs_parse["betaH_B"], upsilon=kwargs_parse["upsilon"], **kwargs_all)
     elif loss_name == "VAE":
@@ -67,12 +68,14 @@ class BaseLoss(abc.ABC):
         Implicitely defines the reconstruction loss. Bernoulli corresponds to a
         binary cross entropy (bse), Gaussian corresponds to MSE, Laplace
         corresponds to L1.
+    
+    util_loss: {"mse"}: loss type for utility predictions 
 
     steps_anneal: nool, optional
         Number of annealing steps where gradually adding the regularisation.
     """
 
-    def __init__(self, record_loss_every=50, rec_dist="bernoulli", util_loss="gaussian", steps_anneal=0):
+    def __init__(self, record_loss_every=50, rec_dist="bernoulli", util_loss="mse", steps_anneal=0):
         self.n_train_steps = 0
         self.record_loss_every = record_loss_every
         self.rec_dist = rec_dist
@@ -141,6 +144,7 @@ class BetaHLoss(BaseLoss):
         super().__init__(**kwargs)
         self.beta = beta
         self.upsilon = upsilon
+        self.util_loss = kwargs["util_loss"] 
 
     def __call__(self, data, recon_data, utilities, recon_utilities, latent_dist, is_train, storer, **kwargs):
         storer = self._pre_call(is_train, storer)
@@ -403,20 +407,15 @@ class BtcvaeLoss(BaseLoss):
 
         return loss
 
-def _utility_loss(utilities, recon_utilities, util_loss="gaussian", storer=None):
+def _utility_loss(utilities, recon_utilities, util_loss="mse", storer=None):
     if (utilities is None or recon_utilities is None):
         loss = 0
-    if(util_loss == "gaussian"):
+    if(util_loss == "mse"):
         lf = nn.MSELoss()
         loss = lf(utilities, recon_utilities)
-        #"utilities: ", utilities)
-        #print("recon_utilities: ", recon_utilities)
-        """
-        stds = torch.exp(0.5 * recon_utilities[1])
-        vars = stds ** 2
-        lf = nn.GaussianNLLLoss()
-        loss = lf(recon_utilities[0], utilities, vars)
-        """
+    elif(util_loss == "L1"):
+        lf = nn.L1Loss()
+        loss = lf(utilities, recon_utilities)
     else:
         loss = ValueError("Unkown Utility Loss: {}".format(util_loss))
     

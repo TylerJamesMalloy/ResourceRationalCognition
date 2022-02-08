@@ -316,7 +316,7 @@ class Niv(DisentangledDataset):
 
     def __init__(self, root=os.path.join(DIR, '../data/niv/'), **kwargs):
         super().__init__(root, [transforms.ToTensor()], **kwargs)
-        self.train_data = root + "/train.npy"
+        self.train_data = root + "/stimuli.npy"
         self.imgs = np.load(self.train_data)
 
     def download(self):
