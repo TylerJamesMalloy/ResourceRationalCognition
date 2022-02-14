@@ -9,6 +9,7 @@ import torch
 import torch.nn.functional as F
 from torch.autograd import Variable
 from torchvision.utils import make_grid, save_image
+from torchvision.io import read_video
 
 from utils.datasets import get_background
 from utils.viz_helpers import (read_loss_from_file, add_labels, make_grid_img,
@@ -427,4 +428,4 @@ class GifTraversalsTraining:
     def save_reset(self):
         """Saves the GIF and resets the list of images. Call at the end of training."""
         imageio.mimsave(self.save_filename, self.images, fps=FPS_GIF)
-        self.images = []
+        #self.images = []

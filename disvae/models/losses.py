@@ -150,6 +150,7 @@ class BetaHLoss(BaseLoss):
         storer = self._pre_call(is_train, storer)
         
         util_loss = _utility_loss(utilities, recon_utilities, util_loss=self.util_loss)
+        util_loss = util_loss * (64 * 64 * 3) # Multiply by image dimensionality 
         rec_loss = _reconstruction_loss(data, recon_data,
                                         storer=storer,
                                         distribution=self.rec_dist)

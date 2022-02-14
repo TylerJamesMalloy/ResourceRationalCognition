@@ -4,18 +4,159 @@ from scipy import io
 from PIL import Image, ImageDraw
 from matplotlib import pyplot as plt
 import seaborn as sns 
+import math 
+import scipy.stats as stats
 
 data = pd.DataFrame()
-bvae = pd.read_pickle("./results/bvae/n3_b4/Predictions.pkl")
-vae = pd.read_pickle("./results/vae/Predictions.pkl")
+vae = pd.read_pickle("./results/vae/ResponseAccuracy_me1_u1000.0.pkl")
 
-
-data = data.append(bvae, ignore_index=True)
 data = data.append(vae, ignore_index=True)
-
-
-ax = sns.lineplot(data=data, x="EpisodeTrial", y="Accuracy", hue="Beta")
-ax.set_title('FRL vs. BVAE vs VAE Predictive Accuracy (1 Epochs)', fontsize=20)
-ax.set_ylabel('Predictive Accuracy', fontsize=16)
+ax = sns.lineplot(data=data, x="EpisodeTrial", y="Accuracy", hue="Model Type")
+ax.set_title('Predictive Accuracy by Episode Trial', fontsize=20)
+ax.set_ylabel('Representation Overlap', fontsize=16)
 ax.set_xlabel('Episode Trial', fontsize=16)
 plt.show()
+
+data = pd.DataFrame()
+vae = pd.read_pickle("./results/vae/RepresentationOverlap_me1_u1000.0.pkl")
+data = data.append(vae, ignore_index=True)
+data = data.loc[data['EpisodeTrial'] < 25]
+
+ax = sns.lineplot(data=data, x="EpisodeTrial", y="Similar Overlap", color="orange", label="Similar")
+ax = sns.lineplot(data=data, x="EpisodeTrial", y="Disimilar Overlap", color="blue", label="Disimilar")
+#plt.legend(title='Overlaps', loc='upper left', labels=['Disimilar Utility', '', 'Similar Utility'])
+ax.set_title('Latent Representation Distribution Overlap By Episode Trial', fontsize=20)
+ax.set_ylabel('Representation Overlap', fontsize=16)
+ax.set_xlabel('Episode Trial', fontsize=16)
+plt.show()
+
+
+assert(False)
+
+fig, ax = plt.subplots(nrows=1, ncols=2, sharex=True, sharey=True)
+
+plt.yticks([])
+
+mu = 0
+variance = 1.25
+sigma = math.sqrt(variance)
+x = np.linspace(mu - 3*sigma, mu + 3*sigma, 100)
+ax[0].plot(x, stats.norm.pdf(x, mu, sigma),linewidth=4.0, color="orange")
+ax[0].axvline(x=mu, color='orange', linestyle='--')
+
+mu = 1
+variance = 1.25
+sigma = math.sqrt(variance)
+x = np.linspace(mu - 3*sigma, mu + 3*sigma, 100)
+ax[0].plot(x, stats.norm.pdf(x, mu, sigma),linewidth=4.0, color="blue")
+ax[0].axvline(x=mu, color='blue', linestyle='--')
+
+mu = -1
+variance = 1.25
+sigma = math.sqrt(variance)
+x = np.linspace(mu - 3*sigma, mu + 3*sigma, 100)
+ax[0].plot(x, stats.norm.pdf(x, mu, sigma),linewidth=4.0, color="green")
+ax[0].axvline(x=mu, color='green', linestyle='--')
+
+# Get the two lines from the axes to generate shading
+l1 = ax[0].lines[0]
+l2 = ax[0].lines[2]
+
+# Get the xy data from the lines so that we can shade
+x1, y1 = l1.get_xydata().T
+x2, y2 = l2.get_xydata().T
+
+xmin = max(x1.min(), x2.min())
+xmax = min(x1.max(), x2.max())
+x = np.linspace(xmin, xmax, 100)
+y1 = np.interp(x, x1, y1)
+y2 = np.interp(x, x2, y2)
+y = np.minimum(y1, y2)
+ax[0].fill_between(x, y, color="red", alpha=0.3)
+
+print(ax[0].lines)
+# Get the two lines from the axes to generate shading
+l1 = ax[0].lines[0]
+l2 = ax[0].lines[4]
+
+# Get the xy data from the lines so that we can shade
+x1, y1 = l1.get_xydata().T
+x2, y2 = l2.get_xydata().T
+
+xmin = max(x1.min(), x2.min())
+xmax = min(x1.max(), x2.max())
+x = np.linspace(xmin, xmax, 100)
+y1 = np.interp(x, x1, y1)
+y2 = np.interp(x, x2, y2)
+y = np.minimum(y1, y2)
+ax[0].fill_between(x, y, color="red", alpha=0.3)
+
+mu = 0.5
+variance = 0.5
+sigma = math.sqrt(variance)
+x = np.linspace(mu - 3*sigma, mu + 3*sigma, 100)
+y4 = stats.norm.pdf(x, mu, sigma)
+ax[1].plot(x, y4, linewidth=4.0, color="blue")
+ax[1].axvline(x=mu, color='blue', linestyle='--')
+
+mu = 2.5
+variance = 0.5
+sigma = math.sqrt(variance)
+x = np.linspace(mu - 3*sigma, mu + 3*sigma, 100)
+y5 = stats.norm.pdf(x, mu, sigma)
+ax[1].plot(x, y5,linewidth=4.0, color="green")
+ax[1].axvline(x=mu, color='green', linestyle='--')
+
+mu = -4
+variance = 0.5
+sigma = math.sqrt(variance)
+x = np.linspace(mu - 3*sigma, mu + 3*sigma, 100)
+y6 = stats.norm.pdf(x, mu, sigma)
+ax[1].plot(x, y6, linewidth=4.0, color="orange")
+ax[1].axvline(x=mu, color='orange', linestyle='--')
+
+# Get the two lines from the axes to generate shading
+l1 = ax[1].lines[0]
+l2 = ax[1].lines[2]
+
+# Get the xy data from the lines so that we can shade
+x1, y1 = l1.get_xydata().T
+x2, y2 = l2.get_xydata().T
+
+xmin = max(x1.min(), x2.min())
+xmax = min(x1.max(), x2.max())
+x = np.linspace(xmin, xmax, 100)
+y1 = np.interp(x, x1, y1)
+y2 = np.interp(x, x2, y2)
+y = np.minimum(y1, y2)
+ax[1].fill_between(x, y, color="red", alpha=0.3)
+
+print(ax[1].lines)
+# Get the two lines from the axes to generate shading
+l1 = ax[1].lines[0]
+l2 = ax[1].lines[4]
+
+# Get the xy data from the lines so that we can shade
+x1, y1 = l1.get_xydata().T
+x2, y2 = l2.get_xydata().T
+
+xmin = max(x1.min(), x2.min())
+xmax = min(x1.max(), x2.max())
+x = np.linspace(xmin, xmax, 100)
+y1 = np.interp(x, x1, y1)
+y2 = np.interp(x, x2, y2)
+y = np.minimum(y1, y2)
+ax[1].fill_between(x, y, color="red", alpha=0.3)
+
+ax[0].set_title("Overlapping Latent Representations", fontsize=18)
+ax[1].set_title("Partitioned Latent Representations", fontsize=18)
+
+ax[0].set_ylim([0, 0.6])
+ax[0].set_xticks([-4,4])
+
+plt.show()
+
+
+
+assert(False)
+

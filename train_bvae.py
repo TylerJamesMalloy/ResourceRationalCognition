@@ -226,6 +226,63 @@ def parse_arguments(args_to_parse):
 
     return args
 
+from statistics import NormalDist
+
+def calculateOverlapsHL(means, logvars, cor_idx):
+    highUtilityOverlaps = []
+    lowUtilityOverlaps = []
+
+    for stimuli_group1, (stimuli_means1, stimuli_logvars1) in enumerate(zip(means, logvars)):
+        for stimuli_group2, (stimuli_means2, stimuli_logvars2) in enumerate(zip(means, logvars)):
+            if(stimuli_group1 != cor_idx or stimuli_group2 != cor_idx): continue # low utility 
+            for stimuli_index1, (latent_means1, latent_logvars1) in enumerate(zip(stimuli_means1, stimuli_logvars1)):
+                for stimuli_index2, (latent_means2, latent_logvars2) in enumerate(zip(stimuli_means2, stimuli_logvars2)):
+                    if(stimuli_group1 == stimuli_group2 and stimuli_index1 == stimuli_index2): continue # Exact same stimuli 
+                    for latent_mean1, latent_logvar1, latent_mean2, latent_logvar2, in zip(latent_means1, latent_logvars1, latent_means2, latent_logvars2):
+                        overlap = NormalDist(mu=latent_mean1, sigma= np.exp(latent_logvar1) ** -2).overlap(NormalDist(mu=latent_mean2, sigma= np.exp(latent_logvar2) ** -2))
+                        highUtilityOverlaps.append(overlap)
+    
+    for stimuli_group1, (stimuli_means1, stimuli_logvars1) in enumerate(zip(means, logvars)):
+        for stimuli_group2, (stimuli_means2, stimuli_logvars2) in enumerate(zip(means, logvars)):
+            if(stimuli_group1 == cor_idx or stimuli_group2 == cor_idx): continue # high utility 
+            for stimuli_index1, (latent_means1, latent_logvars1) in enumerate(zip(stimuli_means1, stimuli_logvars1)):
+                for stimuli_index2, (latent_means2, latent_logvars2) in enumerate(zip(stimuli_means2, stimuli_logvars2)):
+                    if(stimuli_group1 == stimuli_group2 and stimuli_index1 == stimuli_index2): continue # Exact same stimuli 
+                    for latent_mean1, latent_logvar1, latent_mean2, latent_logvar2, in zip(latent_means1, latent_logvars1, latent_means2, latent_logvars2):
+                        overlap = NormalDist(mu=latent_mean1, sigma= np.exp(latent_logvar1) ** -2).overlap(NormalDist(mu=latent_mean2, sigma= np.exp(latent_logvar2) ** -2))
+                        lowUtilityOverlaps.append(overlap)
+
+    return np.mean(highUtilityOverlaps), np.mean(lowUtilityOverlaps)
+
+def calculateOverlaps(means, logvars, cor_idx):
+    sameUtilityOverlaps = []
+    differentUtilityOverlaps = []
+
+    for stimuli_group1, (stimuli_means1, stimuli_logvars1) in enumerate(zip(means, logvars)):
+        for stimuli_group2, (stimuli_means2, stimuli_logvars2) in enumerate(zip(means, logvars)):
+            if(stimuli_group1 == cor_idx and stimuli_group2 != cor_idx): continue # different utility 
+            if(stimuli_group1 != cor_idx and stimuli_group2 == cor_idx): continue # different utility 
+            for stimuli_index1, (latent_means1, latent_logvars1) in enumerate(zip(stimuli_means1, stimuli_logvars1)):
+                for stimuli_index2, (latent_means2, latent_logvars2) in enumerate(zip(stimuli_means2, stimuli_logvars2)):
+                    if(stimuli_group1 == stimuli_group2 and stimuli_index1 == stimuli_index2): continue # Exact same stimuli 
+                    for latent_mean1, latent_logvar1, latent_mean2, latent_logvar2, in zip(latent_means1, latent_logvars1, latent_means2, latent_logvars2):
+                        overlap = NormalDist(mu=latent_mean1, sigma= np.exp(latent_logvar1) ** -2).overlap(NormalDist(mu=latent_mean2, sigma= np.exp(latent_logvar2) ** -2))
+                        sameUtilityOverlaps.append(overlap)
+    
+    for stimuli_group1, (stimuli_means1, stimuli_logvars1) in enumerate(zip(means, logvars)):
+        for stimuli_group2, (stimuli_means2, stimuli_logvars2) in enumerate(zip(means, logvars)):
+            if(stimuli_group1 == cor_idx and stimuli_group2 == cor_idx): continue # same utility 
+            if(stimuli_group1 != cor_idx and stimuli_group2 != cor_idx): continue # same utility 
+            for stimuli_index1, (latent_means1, latent_logvars1) in enumerate(zip(stimuli_means1, stimuli_logvars1)):
+                for stimuli_index2, (latent_means2, latent_logvars2) in enumerate(zip(stimuli_means2, stimuli_logvars2)):
+                    if(stimuli_group1 == stimuli_group2 and stimuli_index1 == stimuli_index2): continue # Exact same stimuli 
+                    for latent_mean1, latent_logvar1, latent_mean2, latent_logvar2, in zip(latent_means1, latent_logvars1, latent_means2, latent_logvars2):
+                        overlap = NormalDist(mu=latent_mean1, sigma= np.exp(latent_logvar1) ** -2).overlap(NormalDist(mu=latent_mean2, sigma= np.exp(latent_logvar2) ** -2))
+                        differentUtilityOverlaps.append(overlap)
+
+    return np.mean(sameUtilityOverlaps), np.mean(differentUtilityOverlaps)
+
+
 def main(args):
     args.img_size = get_img_size(args.dataset)
     mat = io.loadmat('./data/niv/responses/BehavioralDataOnline.mat')
@@ -248,6 +305,7 @@ def main(args):
 
     # retrain and predict 
     ResponseAccuracy = pd.DataFrame()
+    RepresentationOverlap = pd.DataFrame()
     states = np.matrix([
     [1,2,3],
     [1,2,3],
@@ -307,10 +365,36 @@ def main(args):
     
     model = load_model(exp_dir, is_gpu=not args.no_cuda)
     model.to(device)
-    #base_model = copy.deepcopy(model)
+    base_model = copy.deepcopy(model)
+    train_loader = get_dataloaders(args.dataset, batch_size=args.batch_size)
+    from tqdm import trange
+    kwargs = dict(desc="Epoch {}".format(1), leave=False,
+                disable=True)
 
+    """
+    with trange(len(train_loader), **kwargs) as t:
+        for _, data in enumerate(train_loader):
+            for s_index, stimuli in enumerate(data):
+                recon_batch, latent_dist, latent_sample, recon_utilities = model(torch.unsqueeze(stimuli, 0))
+                (means, logvars) = latent_dist
+                means = means.detach().numpy()[0]
+                logvars = logvars.detach().numpy()[0]
+                recon_utilities = recon_utilities.detach().numpy()[0]
+
+                stimuli = np.transpose(stimuli.detach().numpy().squeeze() * 255, [1, 2, 0])
+                stimuli = stimuli.astype(np.uint8)
+                
+                recon = np.transpose(recon_batch.detach().numpy().squeeze() * 255, [1, 2, 0])
+                recon = recon.astype(np.uint8)
+
+                #print(stimuli)
+                
+                img = Image.fromarray(recon)
+                img.save('recons/stimuli_' + str(s_index) +'.png')
+                #img.show()
+    """
     # 0,22 standard full participant range 
-    for participant_id in range(2,6):
+    for participant_id in range(0,22):
         alpha_300 = Feature_Thetas_300[participant_id][0] 
         beta_300 = Feature_Thetas_300[participant_id][1] 
         delta_300 = Feature_Thetas_300[participant_id][2] 
@@ -324,8 +408,12 @@ def main(args):
 
         last_prediction = -1
         old_relevant = -1
+        trial_game_index = 0
+        game_index = 0
 
         for trial_num in range(0,800):
+            if(trial_num == 500):
+                model = copy.deepcopy(base_model)
             color_feature_1 = Stimuli[trial_num][0][0][participant_id]
             shape_feature_1 = Stimuli[trial_num][0][1][participant_id]
             texture_feature_1 = Stimuli[trial_num][0][2][participant_id] 
@@ -362,14 +450,30 @@ def main(args):
                 feature_rl_300.reset()
                 feature_rl_500.reset()
                 trial_game_index = 0
-                # Resetting model completely negatively impacts predictive accuracy
+                game_index += 1
+                # Resetting model  negatively impacts predictive accuracy
                 # model = copy.deepcopy(base_model)
+                optimizer = optim.Adam(model.parameters(), lr=args.lr)
+                loss_f = get_loss_f(args.loss,
+                                        n_data=len(train_loader.dataset),
+                                        device=device,
+                                        **vars(args))
+                trainer = Trainer(model, optimizer, loss_f,
+                                        device=device,
+                                        logger=None,
+                                        save_dir=exp_dir,
+                                        is_progress_bar=False)
+                base_utilities = np.ones((27))* 0.5
+                base_utilities = torch.from_numpy(base_utilities.astype(np.float64)).float()
+                epochs = args.model_epochs #if trial_game_index > 1 else 100
+                trainer(train_loader,
+                    utilities=base_utilities, 
+                    epochs=epochs, 
+                    checkpoint_every=10000)
 
             prediction_outcome = True
             if(trial_num >= 500):
                 (prediction, guess, percentages) = feature_rl_300.predict(stimulus)
-                #print(guess)
-                # ADD to dataframe 
                 feature_rl_300.forget(chosen)
                 feature_rl_300.train_state_reward(chosen, outcome)
                 feature_values = feature_rl_300.q_table
@@ -387,6 +491,84 @@ def main(args):
             (prediction, guess, bvae_percentages) = predict_utilities(stimulus, model, train_loader, inv_temp=inv_temp)
             bvae_chosen_percentage = bvae_percentages[choice_index]
 
+            # Find which latent feature corresponds to the feature of interest 
+            # Calculate the overlap between latent feature of interest and 2 others 
+
+            trial_game_index += 1
+            old_relevant = relevant
+
+            updated_utilities = get_updated_utilities(feature_values.flatten())
+            #print("updated_utilities: ", updated_utilities)
+            
+            optimizer = optim.Adam(model.parameters(), lr=args.lr)
+            loss_f = get_loss_f(args.loss,
+                                    n_data=len(train_loader.dataset),
+                                    device=device,
+                                    **vars(args))
+            
+            trainer = Trainer(model, optimizer, loss_f,
+                                    device=device,
+                                    logger=None,
+                                    save_dir=exp_dir,
+                                    is_progress_bar=False)
+            
+            epochs = args.model_epochs #if trial_game_index > 1 else 100
+            trainer(train_loader,
+                utilities=updated_utilities, 
+                epochs=epochs, 
+                checkpoint_every=10000)
+
+            rel_idx = relevant- 1 
+            cor_idx = correct - 1
+
+            all_means = [[],[],[]]
+            all_lvars = [[],[],[]]
+            all_utils = [[],[],[]]
+
+            from tqdm import trange
+            kwargs = dict(desc="Epoch {}".format(1), leave=False,
+                      disable=True)
+            with trange(len(train_loader), **kwargs) as t:
+                for _, data in enumerate(train_loader):
+                    for s_index, stimuli in enumerate(data):
+                        recon_batch, latent_dist, latent_sample, recon_utilities = model(torch.unsqueeze(stimuli, 0))
+                        (means, logvars) = latent_dist
+                        means = means.detach().numpy()[0]
+                        logvars = logvars.detach().numpy()[0]
+                        recon_utilities = recon_utilities.detach().numpy()[0]
+
+                        """print(recon_batch.detach().numpy().shape)
+                        stimuli = np.transpose(stimuli.detach().numpy().squeeze() * 255, [1, 2, 0])
+                        stimuli = stimuli.astype(np.uint8)
+                        
+                        recon = np.transpose(recon_batch.detach().numpy().squeeze() * 255, [1, 2, 0])
+                        recon = recon.astype(np.uint8)
+
+                        #print(stimuli)
+                        
+                        img = Image.fromarray(recon)
+                        img.save('recons/stimuli_' + str(s_index) +'.png')"""
+                        f_map = FEATURE_MAP[s_index]
+                        all_means[f_map[rel_idx]].append(means)
+                        all_lvars[f_map[rel_idx]].append(logvars)
+                        all_utils[f_map[rel_idx]].append(recon_utilities)
+
+            # shape, color, texture 
+            similar_overlap, disimilar_overlap = (0,0)
+            #if(np.argmax(np.mean(all_utils, axis=1)) > 0.5):
+            similar_overlap, disimilar_overlap = calculateOverlaps(all_means, all_lvars, cor_idx)
+            high_overlap, low_overlap = calculateOverlapsHL(all_means, all_lvars, cor_idx)
+            #print("Trail: ", trial_game_index ," similar: ", similar_overlap, " dissimilar: ", disimilar_overlap)
+            
+            RepresentationOverlap = RepresentationOverlap.append({
+                "EpisodeIndex": game_index, 
+                "EpisodeTrial": trial_game_index, 
+                "Similar Overlap": similar_overlap,
+                "Disimilar Overlap": disimilar_overlap,
+                "High Utility Overlap": high_overlap,
+                "Low Utility Overlap": low_overlap,
+                "Trial Type": trial_num >= 500,
+            }, ignore_index=True)
 
             if(trial_game_index < 25):
                 ResponseAccuracy = ResponseAccuracy.append({    "EpisodeTrial": trial_game_index, 
@@ -402,40 +584,9 @@ def main(args):
                                                                 "Model Type":"BVAE",
                                                                 "Beta":args.betaH_B,
                                                                 "Correct":correct}, ignore_index=True)
-
-            trial_game_index += 1
-            old_relevant = relevant
-
-            updated_utilities = get_updated_utilities(feature_values.flatten())
-            #print("updated_utilities: ", updated_utilities)
-            
-            optimizer = optim.Adam(model.parameters(), lr=args.lr)
-            loss_f = get_loss_f(args.loss,
-                                    n_data=len(train_loader.dataset),
-                                    device=device,
-                                    **vars(args))
-            trainer = Trainer(model, optimizer, loss_f,
-                                    device=device,
-                                    logger=None,
-                                    save_dir=exp_dir,
-                                    is_progress_bar=False)
-            
-            epochs = args.model_epochs if trial_game_index > 1 else 100
-            trainer(train_loader,
-                utilities=updated_utilities, 
-                epochs=epochs, 
-                checkpoint_every=10000)
-
-    print(ResponseAccuracy)
-    #ResponseAccuracy.plot(x='EpisodeTrial', y='Accuracy')
-    ax = sns.lineplot(data=ResponseAccuracy, x="EpisodeTrial", y="Accuracy", hue="Model Type")
-    ax.set_title('10 Model Epochs, no model resetting, 100 trains on game reset (' + str(args.model_epochs) + 'Epochs)')
-    ax.set_ylabel('Predictive Accuracy')
-    ax.set_xlabel('Episode Trial')
-    plt.show()
-    #print(np.mean(all_probabilities, axis=0))
-
-    ResponseAccuracy.to_pickle(exp_dir + "./Predictions.pkl") 
+                                                                
+    ResponseAccuracy.to_pickle(exp_dir + "./ResponseAccuracy_me" + str(args.model_epochs) + "_u"  + str(args.upsilon) + ".pkl") 
+    RepresentationOverlap.to_pickle(exp_dir + "./RepresentationOverlap_me" + str(args.model_epochs) + "_u"  + str(args.upsilon) + ".pkl") 
     # add file with all arguments: 
 
 if __name__ == '__main__':
