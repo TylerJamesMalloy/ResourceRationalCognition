@@ -6,29 +6,53 @@ from matplotlib import pyplot as plt
 import seaborn as sns 
 import math 
 import scipy.stats as stats
+import os 
+
+filename = "ResponseAccuracy_me10_u10000.pkl"
 
 data = pd.DataFrame()
-vae = pd.read_pickle("./results/vae/ResponseAccuracy_me1_u1000.0.pkl")
+if(os.path.exists("./results/sparse/" + filename)):
+    sparse = pd.read_pickle("./results/sparse/" + filename)
+    sparse = sparse.loc[sparse['Model Type'] == "BVAE"]
+    sparse["Model Type"] = "Sparse"
+    data = data.append(sparse, ignore_index=True)
 
-data = data.append(vae, ignore_index=True)
+
+if(os.path.exists("./results/cnn_64/" + filename)):
+    cnn = pd.read_pickle("./results/cnn_64/" + filename)
+    cnn = cnn.loc[cnn['Model Type'] == "BVAE"]
+    cnn["Model Type"] = "CNN"
+    data = data.append(cnn, ignore_index=True)
+
+if(os.path.exists("./results/bvae/" + filename)):
+    bvae = pd.read_pickle("./results/bvae/" + filename)
+    data = data.append(bvae, ignore_index=True)
+
+data = data.loc[data['EpisodeTrial'] < 25]
+
 ax = sns.lineplot(data=data, x="EpisodeTrial", y="Accuracy", hue="Model Type")
 ax.set_title('Predictive Accuracy by Episode Trial', fontsize=20)
-ax.set_ylabel('Representation Overlap', fontsize=16)
+ax.set_ylabel('Predictive Accuracy', fontsize=16)
 ax.set_xlabel('Episode Trial', fontsize=16)
 plt.show()
 
+"""
 data = pd.DataFrame()
-vae = pd.read_pickle("./results/vae/RepresentationOverlap_me1_u1000.0.pkl")
+vae = pd.read_pickle("./results/sparse/RepresentationOverlap_me5_u10.pkl")
 data = data.append(vae, ignore_index=True)
 data = data.loc[data['EpisodeTrial'] < 25]
 
-ax = sns.lineplot(data=data, x="EpisodeTrial", y="Similar Overlap", color="orange", label="Similar")
-ax = sns.lineplot(data=data, x="EpisodeTrial", y="Disimilar Overlap", color="blue", label="Disimilar")
+#ax = sns.lineplot(data=data, x="EpisodeTrial", y="Similar KLD", color="orange", label="Similar")
+#ax = sns.lineplot(data=data, x="EpisodeTrial", y="Disimilar KLD", color="blue", label="Disimilar")
+#ax = sns.lineplot(data=data, x="EpisodeTrial", y="Similar Overlap", color="orange", label="Similar")
+#ax = sns.lineplot(data=data, x="EpisodeTrial", y="Disimilar Overlap", color="blue", label="Disimilar")
+#ax = sns.lineplot(data=data, x="EpisodeTrial", y="High Utility Overlap", color="orange", label="High Utility")
+#ax = sns.lineplot(data=data, x="EpisodeTrial", y="Low Utility Overlap", color="blue", label="Low Utility")
 #plt.legend(title='Overlaps', loc='upper left', labels=['Disimilar Utility', '', 'Similar Utility'])
-ax.set_title('Latent Representation Distribution Overlap By Episode Trial', fontsize=20)
+ax.set_title('Representation Overlap By Episode Trial', fontsize=20)
 ax.set_ylabel('Representation Overlap', fontsize=16)
 ax.set_xlabel('Episode Trial', fontsize=16)
-plt.show()
+plt.show()"""
 
 
 assert(False)

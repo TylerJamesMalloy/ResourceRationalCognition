@@ -28,6 +28,7 @@ class Net(nn.Module):
         self.fcbn1 = nn.BatchNorm1d(latent_dim)
         self.fc2 = nn.Linear(in_features = latent_dim, out_features = feature_labels)
 
+        self.sigmoid = nn.Sigmoid()
         self.dropout_rate = dropout
 
     def forward(self, s):
@@ -46,6 +47,7 @@ class Net(nn.Module):
         #apply 2 fully connected layers with dropout
         s = F.dropout(F.relu(self.fcbn1(self.fc1(s))), p=self.dropout_rate, training=self.training)    # batch_size x latent_dim
         s = self.fc2(s) 
+        s = self.sigmoid(s)
         return s
 
 class Utility(nn.Module):
@@ -71,9 +73,6 @@ class Utility(nn.Module):
         # Fully connected layers with ReLu activations
         x = th.relu(self.lin1(x))
         x = th.relu(self.lin2(x))
-
-        # Fully connected layer for log variance and mean
-        # Log std-dev in paper (bear in mind)
         out = th.flatten(self.out(x))
         #out = out.view(-1, 1).unbind(-1) 
 
@@ -82,7 +81,7 @@ class Utility(nn.Module):
 
             
 class CNN(nn.Module):
-    def __init__(self, utility_type="Malloy", img_size=64, latent_dim=10, feature_labels=9, **kwargs):
+    def __init__(self, utility_type="Malloy", img_size=64, latent_dim=10, feature_labels=27, **kwargs):
         super(CNN, self).__init__()
         self.net = Net(img_size, latent_dim, feature_labels, (kwargs['kwargs']['dropout_percent'] / 100))
         self.net.fcbn1.register_forward_hook(self.get_activation('fcbn1'))
@@ -164,8 +163,9 @@ class CNN(nn.Module):
 
     def loss(self, data, utilities, recon_utilities, feature_labels, recon_labels, training, storer):
         utility_loss = self._utility_loss(utilities, recon_utilities, util_loss="mse")
-        loss = nn.CrossEntropyLoss() # multi-class classification loss 
-        cnn_loss = loss(feature_labels, recon_labels)
+        loss = nn.CrossEntropyLoss() 
+        cnn_loss = loss(recon_labels, feature_labels)
+        #print("true: ", feature_labels[0][0], " predicted ", recon_labels[0][0])
 
         return cnn_loss + (self.upsilon * utility_loss)
 

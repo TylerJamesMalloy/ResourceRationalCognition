@@ -1,6 +1,9 @@
 """
 Module containing the main VAE class.
 """
+import random
+import numpy as np 
+
 import torch
 from torch import nn, optim
 from torch.nn import functional as F
@@ -105,4 +108,23 @@ class VAE(nn.Module):
         """
         latent_dist = self.encoder(x)
         latent_sample = self.reparameterize(*latent_dist)
+        return latent_sample
+    
+    def random_sample(self, x):
+        """
+        Returns a sample from the latent distribution without using the reparameterization trick 
+        Note that this method uses pytorch and will detatch the gradient 
+        Assumes a diagonal covariance matrix 
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Batch of data. Shape (batch_size, n_chan, height, width)
+        """
+        #torch.exp(0.5 * logvar)
+
+        latent_dist = self.encoder(x)
+        cov = np.diag(np.exp(latent_dist[1].detach().numpy().squeeze()) ** 2)
+        means = latent_dist[0].detach().numpy().squeeze()
+        latent_sample = np.random.multivariate_normal(means, cov)
         return latent_sample

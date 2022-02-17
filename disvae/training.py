@@ -66,7 +66,8 @@ class Trainer():
     def __call__(self, data_loader,
                  utilities=None,
                  epochs=10,
-                 checkpoint_every=10):
+                 checkpoint_every=10,
+                 index=None):
         """
         Trains the model.
 
@@ -84,7 +85,7 @@ class Trainer():
         self.model.train()
         for epoch in range(epochs):
             storer = defaultdict(list)
-            mean_epoch_loss = self._train_epoch(data_loader, utilities, storer, epoch)
+            mean_epoch_loss = self._train_epoch(data_loader, utilities, storer, epoch, index)
             if self.logger is not None:  self.logger.info('Epoch: {} Average loss per image: {:.2f}'.format(epoch + 1,
                                                                                mean_epoch_loss))
             if self.logger is not None: self.losses_logger.log(epoch, storer)
@@ -104,7 +105,7 @@ class Trainer():
         delta_time = (default_timer() - start) / 60
         if self.logger is not None: self.logger.info('Finished training after {:.1f} min.'.format(delta_time))
 
-    def _train_epoch(self, data_loader, utilities, storer, epoch):
+    def _train_epoch(self, data_loader, utilities, storer, epoch, index):
         """
         Trains the model for one epoch.
 
@@ -128,7 +129,7 @@ class Trainer():
                       disable=not self.is_progress_bar)
         with trange(len(data_loader), **kwargs) as t:
             for _, data in enumerate(data_loader):
-                iter_loss = self._train_iteration(data, utilities, storer)
+                iter_loss = self._train_iteration(data, utilities, storer, index)
                 epoch_loss += iter_loss
 
                 t.set_postfix(loss=iter_loss)
@@ -137,7 +138,7 @@ class Trainer():
         mean_epoch_loss = epoch_loss / len(data_loader)
         return mean_epoch_loss
 
-    def _train_iteration(self, data, utilities, storer):
+    def _train_iteration(self, data, utilities, storer, index):
         """
         Trains the model for one iteration on a batch of data.
 
@@ -151,6 +152,8 @@ class Trainer():
         """
         batch_size, channel, height, width = data.size()
         data = data.to(self.device)
+        if index is not None: data = torch.unsqueeze(data[index,:], 0) 
+        #if(index is not None and data_index != index): continue
         
         """from PIL import Image
         import numpy as np 

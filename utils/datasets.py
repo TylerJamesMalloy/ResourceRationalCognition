@@ -46,7 +46,6 @@ def get_background(dataset):
     """Return the image background color."""
     return get_dataset(dataset).background_color
 
-
 def get_dataloaders(dataset, root=None, shuffle=False, pin_memory=True,
                     batch_size=16, logger=logging.getLogger(__name__), **kwargs):
     """A generic data loader

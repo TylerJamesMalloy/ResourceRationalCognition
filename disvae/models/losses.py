@@ -155,9 +155,11 @@ class BetaHLoss(BaseLoss):
                                         storer=storer,
                                         distribution=self.rec_dist)
         kl_loss = _kl_normal_loss(*latent_dist, storer)
-        anneal_reg = (linear_annealing(0, 1, self.n_train_steps, self.steps_anneal)
-                      if is_train else 1)
+        #anneal_reg = (linear_annealing(0, 1, self.n_train_steps, self.steps_anneal) if is_train else 1)
+        anneal_reg = 1
         loss = rec_loss + (self.upsilon * util_loss) + (anneal_reg * (self.beta * kl_loss))
+
+        #print(" Util loss: ", (self.upsilon * util_loss), " rec loss ", rec_loss, " anneal ", anneal_reg)
 
         if storer is not None:
             storer['loss'].append(loss.item())

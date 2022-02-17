@@ -28,7 +28,7 @@ from PIL import Image, ImageDraw
 from matplotlib import pyplot as plt
 import seaborn as sns 
 
-import math 
+import math, random 
 from models.learning.frl import Feature_RL, frl_env
 
 CONFIG_FILE = "hyperparam.ini"
@@ -206,6 +206,9 @@ def parse_arguments(args_to_parse):
     modelling.add_argument('--model-epochs', type=int,
                             default=default_config['model_epochs'],
                             help='Number of epochs to train utility prediction model.')
+    modelling.add_argument('--trial-update', type=str,
+                            default=default_config['trial_update'],
+                            help='Source for util predictions.')
 
     args = parser.parse_args(args_to_parse)
     if args.experiment != 'custom':
@@ -227,7 +230,81 @@ def parse_arguments(args_to_parse):
     return args
 
 from statistics import NormalDist
+def kl_mvn(m0, S0, m1, S1):
+    """
+    Kullback-Liebler divergence from Gaussian pm,pv to Gaussian qm,qv.
+    Also computes KL divergence from a single Gaussian pm,pv to a set
+    of Gaussians qm,qv.
+    
 
+    From wikipedia
+    KL( (m0, S0) || (m1, S1))
+         = .5 * ( tr(S1^{-1} S0) + log |S1|/|S0| + 
+                  (m1 - m0)^T S1^{-1} (m1 - m0) - N )
+    """
+    # store inv diag covariance of S1 and diff between means
+    N = m0.shape[0]
+    iS1 = np.linalg.inv(S1)
+    diff = m1 - m0
+
+    # kl is made of three terms
+    tr_term   = np.trace(iS1 @ S0)
+    det_term  = np.log(np.linalg.det(S1)/np.linalg.det(S0)) #np.sum(np.log(S1)) - np.sum(np.log(S0))
+    quad_term = diff.T @ np.linalg.inv(S1) @ diff #np.sum( (diff*diff) * iS1, axis=1)
+    #print(tr_term,det_term,quad_term)
+    return .5 * (tr_term + det_term + quad_term - N) 
+
+def kl_normal_loss(pm, plv, qm, qlv):
+    qv = np.exp(qlv)
+    pv = np.exp(plv)
+    pm = np.asarray(pm)
+    qm = np.asarray(qm)
+    if (len(qm.shape) == 2):
+        axis = 1
+    else:
+        axis = 0
+    # Determinants of diagonal covariances pv, qv
+    dpv = pv.prod()
+    dqv = qv.prod(axis)
+    # Inverse of diagonal covariance qv
+    iqv = 1./qv
+    # Difference between means pm, qm
+    diff = qm - pm
+    return (0.5 *
+            (np.log(dqv / dpv)            # log |\Sigma_q| / |\Sigma_p|
+             + (iqv * pv).sum(axis)          # + tr(\Sigma_q^{-1} * \Sigma_p)
+             + (diff * iqv * diff).sum(axis) # + (\mu_q-\mu_p)^T\Sigma_q^{-1}(\mu_q-\mu_p)
+             - len(pm)))                     # - N
+
+def calculateKLD(means, logvars, cor_idx):
+    similarUtilityKLD = []
+    diffUtilityKLD = []
+
+    for stimuli_group1, (stimuli_means1, stimuli_logvars1) in enumerate(zip(means, logvars)):
+        for stimuli_group2, (stimuli_means2, stimuli_logvars2) in enumerate(zip(means, logvars)):
+            if(stimuli_group1 == cor_idx and stimuli_group2 != cor_idx): continue # different utility 
+            if(stimuli_group1 != cor_idx and stimuli_group2 == cor_idx): continue # different utility 
+            for stimuli_index1, (latent_means1, latent_logvars1) in enumerate(zip(stimuli_means1, stimuli_logvars1)):
+                for stimuli_index2, (latent_means2, latent_logvars2) in enumerate(zip(stimuli_means2, stimuli_logvars2)):
+                    kld = kl_normal_loss(latent_means1, latent_logvars1, latent_means2, latent_logvars2)
+                    similarUtilityKLD.append(kld)
+    
+    for stimuli_group1, (stimuli_means1, stimuli_logvars1) in enumerate(zip(means, logvars)):
+        for stimuli_group2, (stimuli_means2, stimuli_logvars2) in enumerate(zip(means, logvars)):
+            if(stimuli_group1 == cor_idx and stimuli_group2 == cor_idx): continue # same utility 
+            if(stimuli_group1 != cor_idx and stimuli_group2 != cor_idx): continue # same utility 
+            for stimuli_index1, (latent_means1, latent_logvars1) in enumerate(zip(stimuli_means1, stimuli_logvars1)):
+                for stimuli_index2, (latent_means2, latent_logvars2) in enumerate(zip(stimuli_means2, stimuli_logvars2)):
+                    kld = kl_normal_loss(latent_means1, latent_logvars1, latent_means2, latent_logvars2)
+                    diffUtilityKLD.append(kld)
+
+    return np.mean(similarUtilityKLD), np.mean(diffUtilityKLD)
+
+"""
+std = torch.exp(0.5 * logvar)
+eps = torch.randn_like(std)
+return mean + std * eps
+"""
 def calculateOverlapsHL(means, logvars, cor_idx):
     highUtilityOverlaps = []
     lowUtilityOverlaps = []
@@ -239,7 +316,7 @@ def calculateOverlapsHL(means, logvars, cor_idx):
                 for stimuli_index2, (latent_means2, latent_logvars2) in enumerate(zip(stimuli_means2, stimuli_logvars2)):
                     if(stimuli_group1 == stimuli_group2 and stimuli_index1 == stimuli_index2): continue # Exact same stimuli 
                     for latent_mean1, latent_logvar1, latent_mean2, latent_logvar2, in zip(latent_means1, latent_logvars1, latent_means2, latent_logvars2):
-                        overlap = NormalDist(mu=latent_mean1, sigma= np.exp(latent_logvar1) ** -2).overlap(NormalDist(mu=latent_mean2, sigma= np.exp(latent_logvar2) ** -2))
+                        overlap = NormalDist(mu=latent_mean1, sigma= np.exp(latent_logvar1 * 0.5)).overlap(NormalDist(mu=latent_mean2, sigma= np.exp(latent_logvar2 * 0.5)))
                         highUtilityOverlaps.append(overlap)
     
     for stimuli_group1, (stimuli_means1, stimuli_logvars1) in enumerate(zip(means, logvars)):
@@ -249,7 +326,7 @@ def calculateOverlapsHL(means, logvars, cor_idx):
                 for stimuli_index2, (latent_means2, latent_logvars2) in enumerate(zip(stimuli_means2, stimuli_logvars2)):
                     if(stimuli_group1 == stimuli_group2 and stimuli_index1 == stimuli_index2): continue # Exact same stimuli 
                     for latent_mean1, latent_logvar1, latent_mean2, latent_logvar2, in zip(latent_means1, latent_logvars1, latent_means2, latent_logvars2):
-                        overlap = NormalDist(mu=latent_mean1, sigma= np.exp(latent_logvar1) ** -2).overlap(NormalDist(mu=latent_mean2, sigma= np.exp(latent_logvar2) ** -2))
+                        overlap = NormalDist(mu=latent_mean1, sigma= np.exp(latent_logvar1 * 0.5)).overlap(NormalDist(mu=latent_mean2, sigma= np.exp(latent_logvar2 * 0.5)))
                         lowUtilityOverlaps.append(overlap)
 
     return np.mean(highUtilityOverlaps), np.mean(lowUtilityOverlaps)
@@ -282,6 +359,10 @@ def calculateOverlaps(means, logvars, cor_idx):
 
     return np.mean(sameUtilityOverlaps), np.mean(differentUtilityOverlaps)
 
+def get_utility(x, model):
+    util_input = torch.from_numpy(np.array(x).reshape(2,3)).unsqueeze(0).float()
+    utility = model.utility(util_input).detach().numpy()
+    return -1 * utility # using scipy minimize, want to maximize utility 
 
 def main(args):
     args.img_size = get_img_size(args.dataset)
@@ -336,7 +417,7 @@ def main(args):
         # pretrain model or load pretrained on reconstructing stimuli set
         model = init_specific_model(args.model_type, args.utility_type, args.img_size, args.latent_dim)
         model = model.to(device)  # make sure trainer and viz on same device
-        gif_visualizer = GifTraversalsTraining(model, args.dataset, exp_dir)
+        #gif_visualizer = GifTraversalsTraining(model, args.dataset, exp_dir)
         train_loader = get_dataloaders(args.dataset,
                                         batch_size=args.batch_size,
                                         logger=logger)
@@ -351,8 +432,7 @@ def main(args):
                             device=device,
                             logger=logger,
                             save_dir=exp_dir,
-                            is_progress_bar=not args.no_progress_bar,
-                            gif_visualizer=gif_visualizer)
+                            is_progress_bar=not args.no_progress_bar)
         utilities = np.ones((27))* 0.5
         utilities = torch.from_numpy(utilities.astype(np.float64)).float()
         trainer(train_loader,
@@ -366,33 +446,170 @@ def main(args):
     model = load_model(exp_dir, is_gpu=not args.no_cuda)
     model.to(device)
     base_model = copy.deepcopy(model)
+    """
     train_loader = get_dataloaders(args.dataset, batch_size=args.batch_size)
     from tqdm import trange
     kwargs = dict(desc="Epoch {}".format(1), leave=False,
                 disable=True)
 
-    """
-    with trange(len(train_loader), **kwargs) as t:
-        for _, data in enumerate(train_loader):
-            for s_index, stimuli in enumerate(data):
-                recon_batch, latent_dist, latent_sample, recon_utilities = model(torch.unsqueeze(stimuli, 0))
-                (means, logvars) = latent_dist
-                means = means.detach().numpy()[0]
-                logvars = logvars.detach().numpy()[0]
-                recon_utilities = recon_utilities.detach().numpy()[0]
+    #model.reset_parameters()
 
-                stimuli = np.transpose(stimuli.detach().numpy().squeeze() * 255, [1, 2, 0])
-                stimuli = stimuli.astype(np.uint8)
-                
-                recon = np.transpose(recon_batch.detach().numpy().squeeze() * 255, [1, 2, 0])
-                recon = recon.astype(np.uint8)
+    # Feature of interest utility vector 
+    red_utility = np.array([0 if x >= 9 else 1 for x in range(27)])
+    grn_utility = np.array([0 if x < 9 or x >= 18 else 1 for x in range(27)])
+    blu_utility = np.array([0 if x < 18 else 1 for x in range(27)])
+    
+    sqr_utility = np.array([1,1,1,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0])
+    cir_utility = np.array([0,0,0,1,1,1,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,1,1,1,0,0,0])
+    tri_utility = np.array([0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,1,1,1])
 
-                #print(stimuli)
-                
-                img = Image.fromarray(recon)
-                img.save('recons/stimuli_' + str(s_index) +'.png')
-                #img.show()
+    dot_utility = np.array([0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,])
+    sqw_utility = np.array([0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,])
+    lin_utility = np.array([1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,1,0,0,])
+
+    #for utility_index, utility in enumerate([red_utility, grn_utility, blu_utility]):
+    for utility_index, utility in enumerate([sqr_utility, cir_utility, tri_utility]):
+    #for utility_index, utility in enumerate([dot_utility, sqw_utility, lin_utility]):
+        optimizer = optim.Adam(model.parameters(), lr=args.lr)
+        loss_f = get_loss_f(args.loss,
+                                n_data=len(train_loader.dataset),
+                                device=device,
+                                **vars(args))
+        trainer = Trainer(model, optimizer, loss_f,
+                                device=device,
+                                logger=None,
+                                save_dir=exp_dir,
+                                is_progress_bar=False)
+        utility = torch.from_numpy(utility.astype(np.float64)).float()
+        epochs = 1000
+        trainer(train_loader,
+            utilities=utility, 
+            epochs=epochs, 
+            checkpoint_every=10000)
+
+        red = np.zeros((64,64,3), np.float64)
+        grn = np.zeros((64,64,3), np.float64)
+        blu = np.zeros((64,64,3), np.float64)
+
+        red_latents = []
+        utility_predictions = []
+        num_samples = 1000
+        for _ in range(num_samples):
+            random.seed(torch.seed() % 2**16)
+            np.random.seed(torch.seed() % 2**16)
+            torch.manual_seed(torch.seed() % 2**16)
+
+            with trange(len(train_loader), **kwargs) as t:
+                for _, data in enumerate(train_loader):
+                    for s_index, stimuli in enumerate(data):
+                        recon_batch, latent_dist, latent_sample, recon_utilities = model(torch.unsqueeze(stimuli, 0))
+                        (means, logvars) = latent_dist
+                        means = means.detach().numpy()[0]
+                        logvars = logvars.detach().numpy()[0]
+                        recon_utilities = recon_utilities.detach().numpy()[0]
+                        latent_sample = latent_sample.detach().numpy()[0]
+
+                        utility_predictions.append(recon_utilities)
+                        #factor = (1 - np.mean(recon_utilities)) * 10
+                        factor = 0
+                        purturbation = np.random.normal(0, 1+factor, size=(args.latent_dim,))
+                        
+                        #+ (100 * factor * np.random.uniform(-1, 1, size=(args.latent_dim,)))
+                        random_latent = model.random_sample(torch.unsqueeze(stimuli, 0)) + purturbation
+                        recon = model.decoder(torch.unsqueeze(torch.from_numpy(random_latent).float(), 0))
+                        recon = np.transpose(recon.detach().numpy().squeeze() * 255, [1, 2, 0])
+
+                        recon = recon.astype(np.float64) / (9 * num_samples)
+
+                        if(dot_utility[s_index] == 1):
+                            red += recon
+                        elif(sqw_utility[s_index] == 1):
+                            grn += recon
+                        else:
+                            blu += recon
+        
+        red=np.array(np.round(red),dtype=np.uint8)
+        grn=np.array(np.round(grn),dtype=np.uint8)
+        blu=np.array(np.round(blu),dtype=np.uint8)
+
+        if(utility_index == 0):
+            # Generate, save and preview final image
+            out=Image.fromarray(red,mode="RGB")
+            out.save("averages/shape/Square_Square.png")
+            out=Image.fromarray(grn,mode="RGB")
+            out.save("averages/shape/Square_Circle.png")
+            out=Image.fromarray(blu,mode="RGB")
+            out.save("averages/shape/Square_Triangle.png")
+        elif(utility_index == 1):
+            # Generate, save and preview final image
+            out=Image.fromarray(red,mode="RGB")
+            out.save("averages/shape/Circle_Square.png")
+            out=Image.fromarray(grn,mode="RGB")
+            out.save("averages/shape/Circle_Circle.png")
+            out=Image.fromarray(blu,mode="RGB")
+            out.save("averages/shape/Circle_Triangle.png")
+        else:
+            # Generate, save and preview final image
+            out=Image.fromarray(red,mode="RGB")
+            out.save("Averages/shape/Triangle_Square.png")
+            out=Image.fromarray(grn,mode="RGB")
+            out.save("Averages/shape/Triangle_Circle.png")
+            out=Image.fromarray(blu,mode="RGB")
+            out.save("Averages/shape/Triangle_Triangle.png")
+        
+        if(utility_index == 0):
+            # Generate, save and preview final image
+            out=Image.fromarray(red,mode="RGB")
+            out.save("averages/texture/Dot_Dot.png")
+            out=Image.fromarray(grn,mode="RGB")
+            out.save("averages/texture/Dot_Sqw.png")
+            out=Image.fromarray(blu,mode="RGB")
+            out.save("averages/texture/Dot_Lin.png")
+        elif(utility_index == 1):
+            # Generate, save and preview final image
+            out=Image.fromarray(red,mode="RGB")
+            out.save("averages/texture/Sqw_Dot.png")
+            out=Image.fromarray(grn,mode="RGB")
+            out.save("averages/texture/Sqw_Sqw.png")
+            out=Image.fromarray(blu,mode="RGB")
+            out.save("averages/texture/Sqw_Lin.png")
+        else:
+            # Generate, save and preview final image
+            out=Image.fromarray(red,mode="RGB")
+            out.save("Averages/texture/Lin_Dot.png")
+            out=Image.fromarray(grn,mode="RGB")
+            out.save("Averages/texture/Lin_Sqw.png")
+            out=Image.fromarray(blu,mode="RGB")
+            out.save("Averages/texture/Lin_Lin.png")
+
+        
+
+        if(utility_index == 0):
+            # Generate, save and preview final image
+            out=Image.fromarray(red,mode="RGB")
+            out.save("Averages/Red_Red.png")
+            out=Image.fromarray(grn,mode="RGB")
+            out.save("Averages/Red_Green.png")
+            out=Image.fromarray(blu,mode="RGB")
+            out.save("Averages/Red_Blue.png")
+        elif(utility_index == 1):
+            # Generate, save and preview final image
+            out=Image.fromarray(red,mode="RGB")
+            out.save("Averages/Green_Red.png")
+            out=Image.fromarray(grn,mode="RGB")
+            out.save("Averages/Green_Green.png")
+            out=Image.fromarray(blu,mode="RGB")
+            out.save("Averages/Green_Blue.png")
+        else:
+            # Generate, save and preview final image
+            out=Image.fromarray(red,mode="RGB")
+            out.save("Averages/Blue_Red.png")
+            out=Image.fromarray(grn,mode="RGB")
+            out.save("Averages/Blue_Green.png")
+            out=Image.fromarray(blu,mode="RGB")
+            out.save("Averages/Blue_Blue.png")
     """
+    train_loader = get_dataloaders(args.dataset, batch_size=args.batch_size)
     # 0,22 standard full participant range 
     for participant_id in range(0,22):
         alpha_300 = Feature_Thetas_300[participant_id][0] 
@@ -453,7 +670,7 @@ def main(args):
                 game_index += 1
                 # Resetting model  negatively impacts predictive accuracy
                 # model = copy.deepcopy(base_model)
-                optimizer = optim.Adam(model.parameters(), lr=args.lr)
+                """optimizer = optim.Adam(model.parameters(), lr=args.lr)
                 loss_f = get_loss_f(args.loss,
                                         n_data=len(train_loader.dataset),
                                         device=device,
@@ -465,11 +682,11 @@ def main(args):
                                         is_progress_bar=False)
                 base_utilities = np.ones((27))* 0.5
                 base_utilities = torch.from_numpy(base_utilities.astype(np.float64)).float()
-                epochs = args.model_epochs #if trial_game_index > 1 else 100
+                epochs = args.model_epochs # could do more 
                 trainer(train_loader,
                     utilities=base_utilities, 
                     epochs=epochs, 
-                    checkpoint_every=10000)
+                    checkpoint_every=10000)"""
 
             prediction_outcome = True
             if(trial_num >= 500):
@@ -486,37 +703,60 @@ def main(args):
             
             frl_chosen_percentage = percentages[choice_index]
             
-            train_loader = get_dataloaders(args.dataset, batch_size=args.batch_size)
+            
             inv_temp = beta_300 if trial_num >= 500 else beta_500
             (prediction, guess, bvae_percentages) = predict_utilities(stimulus, model, train_loader, inv_temp=inv_temp)
             bvae_chosen_percentage = bvae_percentages[choice_index]
 
-            # Find which latent feature corresponds to the feature of interest 
-            # Calculate the overlap between latent feature of interest and 2 others 
-
             trial_game_index += 1
             old_relevant = relevant
 
-            updated_utilities = get_updated_utilities(feature_values.flatten())
-            #print("updated_utilities: ", updated_utilities)
-            
-            optimizer = optim.Adam(model.parameters(), lr=args.lr)
-            loss_f = get_loss_f(args.loss,
-                                    n_data=len(train_loader.dataset),
-                                    device=device,
-                                    **vars(args))
-            
-            trainer = Trainer(model, optimizer, loss_f,
-                                    device=device,
-                                    logger=None,
-                                    save_dir=exp_dir,
-                                    is_progress_bar=False)
-            
-            epochs = args.model_epochs #if trial_game_index > 1 else 100
-            trainer(train_loader,
-                utilities=updated_utilities, 
-                epochs=epochs, 
-                checkpoint_every=10000)
+            if(args.trial_update == "full"):
+                updated_utilities = get_updated_utilities(feature_values.flatten())
+                
+                optimizer = optim.Adam(model.parameters(), lr=args.lr)
+                loss_f = get_loss_f(args.loss,
+                                        n_data=len(train_loader.dataset),
+                                        device=device,
+                                        **vars(args))
+                
+                trainer = Trainer(model, optimizer, loss_f,
+                                        device=device,
+                                        logger=None,
+                                        save_dir=exp_dir,
+                                        is_progress_bar=False)
+                
+                epochs = args.model_epochs #if trial_game_index > 1 else 100
+                trainer(train_loader,
+                    utilities=updated_utilities, 
+                    epochs=epochs, 
+                    checkpoint_every=10000)
+            elif(args.trial_update == "single"):
+                stim_index = (stimulus[choice_index][0]-1) + (3*(stimulus[choice_index][1]-1)) + (6*(stimulus[choice_index][2]-1))
+                updated_utilities = np.array([outcome])
+                updated_utilities = (torch.from_numpy(updated_utilities)).float() 
+                optimizer = optim.Adam(model.parameters(), lr=args.lr) 
+                loss_f = get_loss_f(args.loss,
+                                        n_data=1,
+                                        device=device,
+                                        **vars(args))
+                
+                trainer = Trainer(model, optimizer, loss_f,
+                                        device=device,
+                                        logger=None,
+                                        save_dir=exp_dir,
+                                        is_progress_bar=False)
+                
+                epochs = args.model_epochs #if trial_game_index > 1 else 100
+                trainer(train_loader,
+                    utilities=updated_utilities, 
+                    epochs=epochs, 
+                    checkpoint_every=10000,
+                    index=stim_index)
+            else:
+                assert(False)
+                
+                
 
             rel_idx = relevant- 1 
             cor_idx = correct - 1
@@ -558,7 +798,8 @@ def main(args):
             #if(np.argmax(np.mean(all_utils, axis=1)) > 0.5):
             similar_overlap, disimilar_overlap = calculateOverlaps(all_means, all_lvars, cor_idx)
             high_overlap, low_overlap = calculateOverlapsHL(all_means, all_lvars, cor_idx)
-            #print("Trail: ", trial_game_index ," similar: ", similar_overlap, " dissimilar: ", disimilar_overlap)
+            similar_kl, dissimilar_kl = calculateKLD(all_means, all_lvars, cor_idx)
+            #print("Trail: ", trial_game_index ," similar: ", similar_overlap, " dissimilar: ", disimilar_overlap, " similar kl: ", similar_kl, " dissimilar kl ", dissimilar_kl)
             
             RepresentationOverlap = RepresentationOverlap.append({
                 "EpisodeIndex": game_index, 
@@ -567,6 +808,8 @@ def main(args):
                 "Disimilar Overlap": disimilar_overlap,
                 "High Utility Overlap": high_overlap,
                 "Low Utility Overlap": low_overlap,
+                "Similar KLD": similar_kl,
+                "Disimilar KLD": dissimilar_kl,
                 "Trial Type": trial_num >= 500,
             }, ignore_index=True)
 
@@ -585,8 +828,8 @@ def main(args):
                                                                 "Beta":args.betaH_B,
                                                                 "Correct":correct}, ignore_index=True)
                                                                 
-    ResponseAccuracy.to_pickle(exp_dir + "./ResponseAccuracy_me" + str(args.model_epochs) + "_u"  + str(args.upsilon) + ".pkl") 
-    RepresentationOverlap.to_pickle(exp_dir + "./RepresentationOverlap_me" + str(args.model_epochs) + "_u"  + str(args.upsilon) + ".pkl") 
+    ResponseAccuracy.to_pickle(exp_dir + "./ResponseAccuracy_me" + str(int(args.model_epochs)) + "_u"  + str(args.upsilon) + "+t" + args.trial_update + ".pkl") 
+    RepresentationOverlap.to_pickle(exp_dir + "./RepresentationOverlap_me" + str(int(args.model_epochs)) + "_u"  + str(args.upsilon) + "+t" + args.trial_update + ".pkl") 
     # add file with all arguments: 
 
 if __name__ == '__main__':

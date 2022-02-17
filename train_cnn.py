@@ -160,7 +160,7 @@ def parse_arguments(args_to_parse):
                             help='Weight for utility loss in training.')
 
     modelling.add_argument('--dropout_percent', type=int,
-                            default=20,
+                            default=0,
                             help='Dropout for CNN')
                 
     
@@ -243,7 +243,7 @@ def main(args):
         utilities = np.ones((27))* 0.5
         utilities = torch.from_numpy(utilities.astype(np.float64)).float()
         # feature label for red, square, hatch [1,0,0,1,0,0,1,0,0]
-        feature_labels = []
+        """feature_labels = []
         for color in [0,1,2]:
             for shape in [3,4,5]:
                 for texture in [6,7,8]:
@@ -251,9 +251,8 @@ def main(args):
                     feature_label[color] = 1
                     feature_label[shape] = 1
                     feature_label[texture] = 1
-                    feature_labels.append(feature_label)
-
-        feature_labels = np.array(feature_labels)
+                    feature_labels.append(feature_label)"""
+        feature_labels = np.eye(27)
         trainer(train_loader,
                 utilities=utilities, 
                 feature_labels=feature_labels,
@@ -267,7 +266,10 @@ def main(args):
     model.to(device)
     base_model = copy.deepcopy(model)
 
-    for participant_id in range(0,22):
+    train_loader = get_dataloaders(args.dataset, batch_size=args.batch_size)
+    feature_labels = np.eye(27)
+
+    for participant_id in range(0,8):
         alpha_300 = Feature_Thetas_300[participant_id][0] 
         beta_300 = Feature_Thetas_300[participant_id][1] 
         delta_300 = Feature_Thetas_300[participant_id][2] 
@@ -320,6 +322,23 @@ def main(args):
                 feature_rl_500.reset()
                 trial_game_index = 0
 
+                optimizer = optim.Adam(model.parameters(), lr=args.lr)
+                base_utilities = np.ones((27))* 0.5
+                base_utilities = torch.from_numpy(base_utilities.astype(np.float64)).float()
+                
+                epochs = args.model_epochs # could do more 
+                trainer = Trainer(model, optimizer,
+                                device=device,
+                                logger=None,
+                                save_dir=exp_dir,
+                                is_progress_bar=False)
+
+                trainer(train_loader,
+                    utilities=base_utilities, 
+                    feature_labels=feature_labels,
+                    epochs=epochs, 
+                    checkpoint_every=10000)
+
             prediction_outcome = True
             if(trial_num >= 500):
                 (prediction, guess, percentages) = feature_rl_300.predict(stimulus)
@@ -336,10 +355,12 @@ def main(args):
             
             frl_chosen_percentage = percentages[choice_index]
             
-            train_loader = get_dataloaders(args.dataset, batch_size=args.batch_size)
+            
             inv_temp = beta_300 if trial_num >= 500 else beta_500
             (prediction, guess, bvae_percentages) = predict_utilities(stimulus, model, train_loader, inv_temp = inv_temp)
             bvae_chosen_percentage = bvae_percentages[choice_index]
+
+            trial_game_index += 1
 
             if(trial_game_index < 25):
                 ResponseAccuracy = ResponseAccuracy.append({    "EpisodeTrial": trial_game_index, 
@@ -355,7 +376,7 @@ def main(args):
                                                                 "Epochs":args.model_epochs,
                                                                 "Correct":correct}, ignore_index=True)
 
-            trial_game_index += 1
+            
             old_relevant = relevant
 
             updated_utilities = get_updated_utilities(feature_values.flatten())
@@ -368,7 +389,7 @@ def main(args):
                                     save_dir=exp_dir,
                                     is_progress_bar=False)
             
-            epochs = args.model_epochs if trial_game_index > 1 else 100
+            epochs = args.model_epochs #if trial_game_index > 1 else 100
             trainer(train_loader,
                 utilities=updated_utilities, 
                 feature_labels=feature_labels,
@@ -384,7 +405,7 @@ def main(args):
     plt.show()"""
     #print(np.mean(all_probabilities, axis=0))
 
-    ResponseAccuracy.to_pickle(exp_dir + "./Predictions.pkl") 
+    ResponseAccuracy.to_pickle(exp_dir + "./ResponseAccuracy_me" + str(args.model_epochs) + "_u"  + str(args.upsilon) + ".pkl") 
 
 if __name__ == '__main__':
     args = parse_arguments(sys.argv[1:])
