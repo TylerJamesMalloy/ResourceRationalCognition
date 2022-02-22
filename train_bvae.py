@@ -670,7 +670,7 @@ def main(args):
                 game_index += 1
                 # Resetting model  negatively impacts predictive accuracy
                 # model = copy.deepcopy(base_model)
-                """optimizer = optim.Adam(model.parameters(), lr=args.lr)
+                optimizer = optim.Adam(model.parameters(), lr=args.lr)
                 loss_f = get_loss_f(args.loss,
                                         n_data=len(train_loader.dataset),
                                         device=device,
@@ -682,11 +682,11 @@ def main(args):
                                         is_progress_bar=False)
                 base_utilities = np.ones((27))* 0.5
                 base_utilities = torch.from_numpy(base_utilities.astype(np.float64)).float()
-                epochs = args.model_epochs # could do more 
+                epochs = args.model_epochs 
                 trainer(train_loader,
                     utilities=base_utilities, 
                     epochs=epochs, 
-                    checkpoint_every=10000)"""
+                    checkpoint_every=10000)
 
             prediction_outcome = True
             if(trial_num >= 500):
@@ -711,26 +711,8 @@ def main(args):
             trial_game_index += 1
             old_relevant = relevant
 
-            if(args.trial_update == "full"):
-                updated_utilities = get_updated_utilities(feature_values.flatten())
+            """if(args.trial_update == "full"):
                 
-                optimizer = optim.Adam(model.parameters(), lr=args.lr)
-                loss_f = get_loss_f(args.loss,
-                                        n_data=len(train_loader.dataset),
-                                        device=device,
-                                        **vars(args))
-                
-                trainer = Trainer(model, optimizer, loss_f,
-                                        device=device,
-                                        logger=None,
-                                        save_dir=exp_dir,
-                                        is_progress_bar=False)
-                
-                epochs = args.model_epochs #if trial_game_index > 1 else 100
-                trainer(train_loader,
-                    utilities=updated_utilities, 
-                    epochs=epochs, 
-                    checkpoint_every=10000)
             elif(args.trial_update == "single"):
                 stim_index = (stimulus[choice_index][0]-1) + (3*(stimulus[choice_index][1]-1)) + (6*(stimulus[choice_index][2]-1))
                 updated_utilities = np.array([outcome])
@@ -754,9 +736,27 @@ def main(args):
                     checkpoint_every=10000,
                     index=stim_index)
             else:
-                assert(False)
+                assert(False)"""
+            
+            updated_utilities = get_updated_utilities(feature_values.flatten())
                 
-                
+            optimizer = optim.Adam(model.parameters(), lr=args.lr)
+            loss_f = get_loss_f(args.loss,
+                                    n_data=len(train_loader.dataset),
+                                    device=device,
+                                    **vars(args))
+            
+            trainer = Trainer(model, optimizer, loss_f,
+                                    device=device,
+                                    logger=None,
+                                    save_dir=exp_dir,
+                                    is_progress_bar=False)
+            
+            epochs = args.model_epochs #if trial_game_index > 1 else 100
+            trainer(train_loader,
+                utilities=updated_utilities, 
+                epochs=epochs, 
+                checkpoint_every=10000)
 
             rel_idx = relevant- 1 
             cor_idx = correct - 1
@@ -828,8 +828,8 @@ def main(args):
                                                                 "Beta":args.betaH_B,
                                                                 "Correct":correct}, ignore_index=True)
                                                                 
-    ResponseAccuracy.to_pickle(exp_dir + "./ResponseAccuracy_me" + str(int(args.model_epochs)) + "_u"  + str(args.upsilon) + "+t" + args.trial_update + ".pkl") 
-    RepresentationOverlap.to_pickle(exp_dir + "./RepresentationOverlap_me" + str(int(args.model_epochs)) + "_u"  + str(args.upsilon) + "+t" + args.trial_update + ".pkl") 
+    ResponseAccuracy.to_pickle(exp_dir + "./ResponseAccuracy_me" + str(int(args.model_epochs)) + "_u"  + str(args.upsilon) + ".pkl") 
+    RepresentationOverlap.to_pickle(exp_dir + "./RepresentationOverlap_me" + str(int(args.model_epochs)) + "_u"  + str(args.upsilon)  + ".pkl") 
     # add file with all arguments: 
 
 if __name__ == '__main__':
