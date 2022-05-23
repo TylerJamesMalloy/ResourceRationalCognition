@@ -9,6 +9,160 @@ import scipy.stats as stats
 import os 
 
 
+fig, ax = plt.subplots(nrows=1, ncols=2, sharex=True, sharey=True)
+
+plt.yticks([])
+
+mu = 0
+variance = 1.25
+sigma = math.sqrt(variance)
+x = np.linspace(mu - 3*sigma, mu + 3*sigma, 100)
+ax[0].plot(x, stats.norm.pdf(x, mu, sigma),linewidth=4.0, color="orange")
+ax[0].axvline(x=mu, color='orange', linestyle='--')
+
+mu = 1
+variance = 1.25
+sigma = math.sqrt(variance)
+x = np.linspace(mu - 3*sigma, mu + 3*sigma, 100)
+ax[0].plot(x, stats.norm.pdf(x, mu, sigma),linewidth=4.0, color="blue")
+ax[0].axvline(x=mu, color='blue', linestyle='--')
+
+mu = -1
+variance = 1.25
+sigma = math.sqrt(variance)
+x = np.linspace(mu - 3*sigma, mu + 3*sigma, 100)
+ax[0].plot(x, stats.norm.pdf(x, mu, sigma),linewidth=4.0, color="green")
+ax[0].axvline(x=mu, color='green', linestyle='--')
+
+# Get the two lines from the axes to generate shading
+l1 = ax[0].lines[0]
+l2 = ax[0].lines[2]
+
+# Get the xy data from the lines so that we can shade
+x1, y1 = l1.get_xydata().T
+x2, y2 = l2.get_xydata().T
+
+xmin = max(x1.min(), x2.min())
+xmax = min(x1.max(), x2.max())
+x = np.linspace(xmin, xmax, 100)
+y1 = np.interp(x, x1, y1)
+y2 = np.interp(x, x2, y2)
+y = np.minimum(y1, y2)
+ax[0].fill_between(x, y, color="red", alpha=0.3)
+
+print(ax[0].lines)
+# Get the two lines from the axes to generate shading
+l1 = ax[0].lines[0]
+l2 = ax[0].lines[4]
+
+# Get the xy data from the lines so that we can shade
+x1, y1 = l1.get_xydata().T
+x2, y2 = l2.get_xydata().T
+
+xmin = max(x1.min(), x2.min())
+xmax = min(x1.max(), x2.max())
+x = np.linspace(xmin, xmax, 100)
+y1 = np.interp(x, x1, y1)
+y2 = np.interp(x, x2, y2)
+y = np.minimum(y1, y2)
+ax[0].fill_between(x, y, color="red", alpha=0.3)
+
+#mu = 0.5
+mu = 2.45
+variance = 0.5
+sigma = math.sqrt(variance)
+x = np.linspace(mu - 3*sigma, mu + 3*sigma, 100)
+y4 = stats.norm.pdf(x, mu, sigma)
+ax[1].plot(x, y4, linewidth=4.0, color="blue")
+ax[1].axvline(x=mu, color='blue', linestyle='--')
+
+#mu = 2.5
+mu = -2.45
+variance = 0.5
+sigma = math.sqrt(variance)
+x = np.linspace(mu - 3*sigma, mu + 3*sigma, 100)
+y5 = stats.norm.pdf(x, mu, sigma)
+ax[1].plot(x, y5,linewidth=4.0, color="green")
+ax[1].axvline(x=mu, color='green', linestyle='--')
+
+#mu = -4
+mu = 0
+variance = 0.5
+sigma = math.sqrt(variance)
+x = np.linspace(mu - 3*sigma, mu + 3*sigma, 100)
+y6 = stats.norm.pdf(x, mu, sigma)
+ax[1].plot(x, y6, linewidth=4.0, color="orange")
+ax[1].axvline(x=mu, color='orange', linestyle='--')
+
+"""# Get the two lines from the axes to generate shading
+l1 = ax[1].lines[2]
+l2 = ax[1].lines[4]
+
+# Get the xy data from the lines so that we can shade
+x1, y1 = l1.get_xydata().T
+x2, y2 = l2.get_xydata().T
+
+xmin = max(x1.min(), x2.min())
+xmax = min(x1.max(), x2.max())
+x = np.linspace(xmin, xmax, 100)
+y1 = np.interp(x, x1, y1)
+y2 = np.interp(x, x2, y2)
+y = np.minimum(y1, y2)
+ax[1].fill_between(x, y, color="red", alpha=0.3)
+
+print(ax[1].lines)
+# Get the two lines from the axes to generate shading
+l1 = ax[1].lines[0]
+l2 = ax[1].lines[4]
+
+# Get the xy data from the lines so that we can shade
+x1, y1 = l1.get_xydata().T
+x2, y2 = l2.get_xydata().T
+
+xmin = max(x1.min(), x2.min())
+xmax = min(x1.max(), x2.max())
+x = np.linspace(xmin, xmax, 100)
+y1 = np.interp(x, x1, y1)
+y2 = np.interp(x, x2, y2)
+y = np.minimum(y1, y2)
+ax[1].fill_between(x, y, color="red", alpha=0.3)
+"""
+ax[0].set_title("Overlapping Latent Representations", fontsize=18)
+ax[1].set_title("Partitioned Latent Representations", fontsize=18)
+
+ax[0].set_ylim([0, 0.6])
+ax[0].set_xticks([-4,4])
+
+
+plt.show()
+
+
+
+assert(False)
+
+# results/bvae_b0_u100_m2/ResponseAccuracy.pkl
+
+data = pd.read_pickle("./results/bvae/ResponseAccuracy_me2_u10000.pkl" )
+data = data.loc[data['Model Type'] == "BVAE"]
+print(np.mean(data['Accuracy']))
+
+data = pd.read_pickle("./results/cnn/ResponseAccuracy_me2_u10000.pkl" )
+data = data.loc[data['Model Type'] == "BVAE"]
+print(np.mean(data['Accuracy']))
+
+data = pd.read_pickle("./results/sparse/ResponseAccuracy_me2_u10000.pkl" )
+data = data.loc[data['Model Type'] == "BVAE"]
+print(np.mean(data['Accuracy']))
+
+data = pd.read_pickle("./results/vae/ResponseAccuracy_me5_u10.0.pkl" )
+data = data.loc[data['Model Type'] == "BVAE"]
+print(np.mean(data['Accuracy']))
+
+data = pd.read_pickle("./results/vae/ResponseAccuracy_me5_u10.0.pkl" )
+data = data.loc[data['Model Type'] == "FRL"]
+print(np.mean(data['Accuracy']))
+
+assert(False)
 filename = "ResponseAccuracy_me5_u10.pkl"
 
 data = pd.DataFrame()
@@ -68,131 +222,3 @@ plt.show()
 
 
 assert(False)
-
-fig, ax = plt.subplots(nrows=1, ncols=2, sharex=True, sharey=True)
-
-plt.yticks([])
-
-mu = 0
-variance = 1.25
-sigma = math.sqrt(variance)
-x = np.linspace(mu - 3*sigma, mu + 3*sigma, 100)
-ax[0].plot(x, stats.norm.pdf(x, mu, sigma),linewidth=4.0, color="orange")
-ax[0].axvline(x=mu, color='orange', linestyle='--')
-
-mu = 1
-variance = 1.25
-sigma = math.sqrt(variance)
-x = np.linspace(mu - 3*sigma, mu + 3*sigma, 100)
-ax[0].plot(x, stats.norm.pdf(x, mu, sigma),linewidth=4.0, color="blue")
-ax[0].axvline(x=mu, color='blue', linestyle='--')
-
-mu = -1
-variance = 1.25
-sigma = math.sqrt(variance)
-x = np.linspace(mu - 3*sigma, mu + 3*sigma, 100)
-ax[0].plot(x, stats.norm.pdf(x, mu, sigma),linewidth=4.0, color="green")
-ax[0].axvline(x=mu, color='green', linestyle='--')
-
-# Get the two lines from the axes to generate shading
-l1 = ax[0].lines[0]
-l2 = ax[0].lines[2]
-
-# Get the xy data from the lines so that we can shade
-x1, y1 = l1.get_xydata().T
-x2, y2 = l2.get_xydata().T
-
-xmin = max(x1.min(), x2.min())
-xmax = min(x1.max(), x2.max())
-x = np.linspace(xmin, xmax, 100)
-y1 = np.interp(x, x1, y1)
-y2 = np.interp(x, x2, y2)
-y = np.minimum(y1, y2)
-ax[0].fill_between(x, y, color="red", alpha=0.3)
-
-print(ax[0].lines)
-# Get the two lines from the axes to generate shading
-l1 = ax[0].lines[0]
-l2 = ax[0].lines[4]
-
-# Get the xy data from the lines so that we can shade
-x1, y1 = l1.get_xydata().T
-x2, y2 = l2.get_xydata().T
-
-xmin = max(x1.min(), x2.min())
-xmax = min(x1.max(), x2.max())
-x = np.linspace(xmin, xmax, 100)
-y1 = np.interp(x, x1, y1)
-y2 = np.interp(x, x2, y2)
-y = np.minimum(y1, y2)
-ax[0].fill_between(x, y, color="red", alpha=0.3)
-
-mu = 0.5
-variance = 0.5
-sigma = math.sqrt(variance)
-x = np.linspace(mu - 3*sigma, mu + 3*sigma, 100)
-y4 = stats.norm.pdf(x, mu, sigma)
-ax[1].plot(x, y4, linewidth=4.0, color="blue")
-ax[1].axvline(x=mu, color='blue', linestyle='--')
-
-mu = 2.5
-variance = 0.5
-sigma = math.sqrt(variance)
-x = np.linspace(mu - 3*sigma, mu + 3*sigma, 100)
-y5 = stats.norm.pdf(x, mu, sigma)
-ax[1].plot(x, y5,linewidth=4.0, color="green")
-ax[1].axvline(x=mu, color='green', linestyle='--')
-
-mu = -4
-variance = 0.5
-sigma = math.sqrt(variance)
-x = np.linspace(mu - 3*sigma, mu + 3*sigma, 100)
-y6 = stats.norm.pdf(x, mu, sigma)
-ax[1].plot(x, y6, linewidth=4.0, color="orange")
-ax[1].axvline(x=mu, color='orange', linestyle='--')
-
-# Get the two lines from the axes to generate shading
-l1 = ax[1].lines[0]
-l2 = ax[1].lines[2]
-
-# Get the xy data from the lines so that we can shade
-x1, y1 = l1.get_xydata().T
-x2, y2 = l2.get_xydata().T
-
-xmin = max(x1.min(), x2.min())
-xmax = min(x1.max(), x2.max())
-x = np.linspace(xmin, xmax, 100)
-y1 = np.interp(x, x1, y1)
-y2 = np.interp(x, x2, y2)
-y = np.minimum(y1, y2)
-ax[1].fill_between(x, y, color="red", alpha=0.3)
-
-print(ax[1].lines)
-# Get the two lines from the axes to generate shading
-l1 = ax[1].lines[0]
-l2 = ax[1].lines[4]
-
-# Get the xy data from the lines so that we can shade
-x1, y1 = l1.get_xydata().T
-x2, y2 = l2.get_xydata().T
-
-xmin = max(x1.min(), x2.min())
-xmax = min(x1.max(), x2.max())
-x = np.linspace(xmin, xmax, 100)
-y1 = np.interp(x, x1, y1)
-y2 = np.interp(x, x2, y2)
-y = np.minimum(y1, y2)
-ax[1].fill_between(x, y, color="red", alpha=0.3)
-
-ax[0].set_title("Overlapping Latent Representations", fontsize=18)
-ax[1].set_title("Partitioned Latent Representations", fontsize=18)
-
-ax[0].set_ylim([0, 0.6])
-ax[0].set_xticks([-4,4])
-
-plt.show()
-
-
-
-assert(False)
-
