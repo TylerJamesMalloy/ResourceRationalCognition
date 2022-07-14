@@ -629,7 +629,7 @@ def main(args):
         game_index = 0
 
         for trial_num in range(0,800):
-            if(trial_num == 500):
+            if(trial_num == 500): # reset when trial type switches
                 model = copy.deepcopy(base_model)
             color_feature_1 = Stimuli[trial_num][0][0][participant_id]
             shape_feature_1 = Stimuli[trial_num][0][1][participant_id]
@@ -765,6 +765,8 @@ def main(args):
             all_lvars = [[],[],[]]
             all_utils = [[],[],[]]
 
+            data_means = []
+
             from tqdm import trange
             kwargs = dict(desc="Epoch {}".format(1), leave=False,
                       disable=True)
@@ -777,21 +779,53 @@ def main(args):
                         logvars = logvars.detach().numpy()[0]
                         recon_utilities = recon_utilities.detach().numpy()[0]
 
-                        """print(recon_batch.detach().numpy().shape)
+                        #print("Stimuli: ", s_index, " mean ", means)
+
+                        #print(recon_batch.detach().numpy().shape)
                         stimuli = np.transpose(stimuli.detach().numpy().squeeze() * 255, [1, 2, 0])
                         stimuli = stimuli.astype(np.uint8)
                         
                         recon = np.transpose(recon_batch.detach().numpy().squeeze() * 255, [1, 2, 0])
                         recon = recon.astype(np.uint8)
 
+                        data_means.append(means)
+
                         #print(stimuli)
                         
                         img = Image.fromarray(recon)
-                        img.save('recons/stimuli_' + str(s_index) +'.png')"""
+                        img.save('recons/stimuli_' + str(s_index) +'.png')
                         f_map = FEATURE_MAP[s_index]
                         all_means[f_map[rel_idx]].append(means)
                         all_lvars[f_map[rel_idx]].append(logvars)
                         all_utils[f_map[rel_idx]].append(recon_utilities)
+
+            red     = np.array(data_means[0:9])
+            green   = np.array(data_means[9:18])
+            blue    = np.array(data_means[18:28])
+
+            square      = np.array([data_means[0], data_means[1], data_means[2], data_means[9], data_means[10], data_means[11], data_means[18], data_means[19], data_means[20]])
+            circle      = np.array([data_means[3], data_means[4], data_means[5], data_means[12], data_means[13], data_means[14], data_means[21], data_means[22], data_means[23]])
+            triangle    = np.array([data_means[6], data_means[7], data_means[8], data_means[15], data_means[16], data_means[17], data_means[24], data_means[25], data_means[26]])
+
+            hatch      = np.array([data_means[0], data_means[9], data_means[18], data_means[3], data_means[12], data_means[21], data_means[6], data_means[15], data_means[24]])
+            wavy      = np.array([data_means[1], data_means[10], data_means[19], data_means[4], data_means[13], data_means[12], data_means[7], data_means[16], data_means[25]])
+            dotted    = np.array([data_means[2], data_means[11], data_means[20], data_means[5], data_means[14], data_means[23], data_means[8], data_means[17], data_means[26]])
+
+            square_means = np.std(square, axis=0)
+            circle_means = np.std(circle, axis=0)
+            triangle_means = np.std(triangle, axis=0)
+
+            red_means = np.std(red, axis=0)
+            green_means = np.std(green, axis=0)
+            blue_means = np.std(blue, axis=0)
+
+            hatch_means = np.std(hatch, axis=0)
+            wavy_means = np.std(wavy, axis=0)
+            dotted_means = np.std(dotted, axis=0)
+
+            # shape = 7, color = 9, textr = 6
+
+            
 
             # shape, color, texture 
             similar_overlap, disimilar_overlap = (0,0)

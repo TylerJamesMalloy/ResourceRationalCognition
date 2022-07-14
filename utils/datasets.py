@@ -66,7 +66,6 @@ def get_dataloaders(dataset, root=None, shuffle=False, pin_memory=True,
     Dataset = get_dataset(dataset)
     if(set is not None): 
         root = root + "/set" + str(set)  if root is not None else "/set" + str(set)
-    print(root)
     dataset = Dataset(logger=logger) if root is None else Dataset(root=root, logger=logger)
     return DataLoader(dataset,
                       batch_size=batch_size,
@@ -94,9 +93,9 @@ class DisentangledDataset(Dataset, abc.ABC):
         self.logger = logger
 
         if not os.path.isdir(root):
-            self.logger.info("Downloading {} ...".format(str(type(self))))
+            #self.logger.info("Downloading {} ...".format(str(type(self))))
             self.download()
-            self.logger.info("Finished Downloading.")
+            #self.logger.info("Finished Downloading.")
 
     def __len__(self):
         return len(self.imgs)
