@@ -237,12 +237,12 @@ for marble_colors in all_marble_colors:
     stimuli_marble_values.append(marble_values)
 
 folder = './data/marbles/decisions/data2'
+all_participant_data = [f for f in listdir(folder) if isfile(join(folder, f))]
 good_participants = ['1088359975_20220708.csv', '1384981370_20220710.csv', '1748395787_20220709.csv', '1832380163_20220710.csv', '1996454642_20220710.csv', '2285081095_20220709.csv', '3072823518_20220709.csv', '3209482804_20220710.csv', '3280341755_20220709.csv', '3437307782_20220709.csv', '3684971091_20220710.csv', '4192753508_20220710.csv', '4617021112_20220709.csv', '4984990593_20220710.csv', '5649795488_20220711.csv', '6261906642_20220709.csv', '6967768109_20220708.csv', '7036685623_20220709.csv', '7361812709_20220709.csv', '7714472260_20220710.csv', '7763967651_20220710.csv', '7781888656_20220709.csv', '8056959514_20220709.csv', '8114269562_20220709.csv', '8214654421_20220710.csv', '8242903913_20220710.csv', '8466633972_20220709.csv', '8473787759_20220709.csv', '8854732576_20220710.csv', '8893453676_20220710.csv', '8988448256_20220710.csv', '9201972787_20220709.csv', '9375774875_20220710.csv', '9553285857_20220709.csv', '9852782779_20220709.csv']
 #all_participant_data = [f for f in listdir(folder) if isfile(join(folder, f))]
 #all_participant_data = [participant_data for participant_data in all_participant_data if participant_data not in bad_participants]
 all_participant_data = good_participants
-
-
+print(len(all_participant_data))
 
 def softmax(utilities, tau):
     distribution = np.exp(utilities * tau) / np.sum(np.exp(utilities * tau))
@@ -252,7 +252,7 @@ def meu_predictive_accuracy(parameters, participant_data):
     data = pd.read_csv(join(folder, participant_data))  
     stimuli_set = int(data['marble_set'][0])
 
-    data = data.tail(180)
+    data = data.tail(200)
     
     inv_temp = parameters[0]
     change_random = parameters[1]
@@ -647,11 +647,13 @@ def bvae_mse(optim_args, participant_data):
 
     return -1 * np.mean(predictive_accuracy)
 
-
+def cnn_mse(optim_args, participant_data):
+    assert(False)
 
 def main(args):
     all_data = pd.DataFrame()
-    for participant_data in all_participant_data:
+    #for participant_data in all_participant_data:
+    for participant_data in ['1088359975_20220708.csv']:
         #print(meu_predictive_accuracy(5, participant_data))
         #assert(False)
 
@@ -659,7 +661,7 @@ def main(args):
         meu_data_accuracy = {"Model": "MEU", "Predictive Accuracy":-1 * res['fun'], "Params":-1 * res['x']}
         all_data = all_data.append(meu_data_accuracy, ignore_index=True)
         
-        res = optimize.minimize(cpt_predictive_accuracy, (20,1, 0.5, 0.5), args=(participant_data), bounds=((1e-6, 100),(1e-3, 3),(1e-6,1),(1e-6,1)))
+        res = optimize.minimize(cpt_predictive_accuracy, (20, 1, 0.5, 0.5), args=(participant_data), bounds=((1e-6, 100),(1e-3, 3),(1e-6,1),(1e-6,1)))
         cpt_data_accuracy = {"Model": "CPT", "Predictive Accuracy":-1 * res['fun'], "Params":-1 * res['x']}
         all_data = all_data.append(cpt_data_accuracy, ignore_index=True)
 
@@ -667,11 +669,11 @@ def main(args):
         logic_data_accuracy = {"Model": "Logic", "Predictive Accuracy":-1 * res['fun'], "Params":-1 * res['x']}
         all_data = all_data.append(logic_data_accuracy, ignore_index=True)
         
-        """res = optimize.minimize(bvae_mse, (10, 10, 0.5, 0.2), args=(participant_data), bounds=((0, 1000),(-100, 100), (1e-6,1), (1e-6,1)))
+        res = optimize.minimize(bvae_mse, (10, 10, 0.5, 0.2), args=(participant_data), bounds=((0, 1000),(-100, 100), (1e-6,1), (1e-6,1)))
         bvae_data_accuracy = {"Model": "BVAE", "Predictive Accuracy":-1 * res['fun']}
-        all_data = all_data.append(bvae_data_accuracy, ignore_index=True)"""
+        all_data = all_data.append(bvae_data_accuracy, ignore_index=True)
 
-        print("Bvae predictive accuracy: ", res['fun'])
+        print("Bvae predictive accuracy: ", -1 * res['fun'])
 
     print(all_data)
     ax = sns.violinplot(x="Model", y="Predictive Accuracy", data=all_data)

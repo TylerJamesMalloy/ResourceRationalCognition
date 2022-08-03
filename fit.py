@@ -243,15 +243,13 @@ good_participants = ['1206472879_20220607.csv', '1481432285_20220607.csv', '1571
 #all_participant_data = [participant_data for participant_data in all_participant_data if participant_data not in bad_participants]
 all_participant_data = good_participants
 
-
-
 def softmax(utilities, tau):
     distribution = np.exp(utilities * tau) / np.sum(np.exp(utilities * tau))
     return distribution
 
 def meu_predictive_accuracy(inv_temp, participant_data):
     data = pd.read_csv(join(folder, participant_data))  
-    data = data.tail(180)
+    data = data.tail(200)
 
     predictive_accuracy = []
     X = []
@@ -287,7 +285,7 @@ def meu_predictive_accuracy(inv_temp, participant_data):
 
 def cpt_predictive_accuracy(params, participant_data):
     data = pd.read_csv(join(folder, participant_data))  
-    data = data.tail(180)
+    data = data.tail(200)
 
     inv_temp = params[0]
     cpt_scale = params[1]
@@ -329,7 +327,7 @@ def cpt_predictive_accuracy(params, participant_data):
 
 def logic_predictive_accuracy(params, participant_data):
     data = pd.read_csv(join(folder, participant_data))  
-    data = data.tail(180)
+    data = data.tail(200)
 
     twos_value = params[0]
     threes_value = params[1]
@@ -394,11 +392,10 @@ def bvae_mse(optim_args, participant_data):
     data = pd.read_csv(join(folder, participant_data))  
     stimuli_set = int(data['marble_set'][0])
 
-    data = data.tail(180)
+    data = data.tail(200)
     args.img_size = get_img_size(args.dataset)
 
     
-
     model = load_model(exp_dir + "/set" + str(stimuli_set))
     #model = init_specific_model(args.model_type, args.utility_type, args.img_size, args.latent_dim)
     model.to(device)
@@ -471,30 +468,32 @@ def main(args):
     predictive_accuracies = []
     inv_temps = []
     all_data = pd.DataFrame()
-    for participant_data in all_participant_data:
+    #for participant_data in all_participant_data:
+    for participant_data in ['1206472879_20220607.csv']:
         #print(meu_predictive_accuracy(5, participant_data))
         #assert(False)
         
         res = optimize.minimize(meu_predictive_accuracy, (20), args=(participant_data), bounds=((1e-6, 100),), options={"gtol":1e-12})
-        meu_data_accuracy = {"Model": "MEU", "Predictive Accuracy":-1 * res['fun'], "Params":-1 * res['x']}
+        meu_data_accuracy = {"Model": "MEU", "Predictive Accuracy":-1 * res['fun'], "Params": res['x']}
         all_data = all_data.append(meu_data_accuracy, ignore_index=True)
 
         res = optimize.minimize(cpt_predictive_accuracy, (20,1), args=(participant_data), bounds=((1e-6, 100),(1e-3, 3)), options={"gtol":1e-12})
-        cpt_data_accuracy = {"Model": "CPT", "Predictive Accuracy":-1 * res['fun'], "Params":-1 * res['x']}
+        cpt_data_accuracy = {"Model": "CPT", "Predictive Accuracy":-1 * res['fun'], "Params": res['x']}
         all_data = all_data.append(cpt_data_accuracy, ignore_index=True)
 
         res = optimize.minimize(logic_predictive_accuracy, (2,3,4,20), args=(participant_data), bounds=((.1,10),(.1,10),(.1,10),(1e-6, 100)), options={"gtol":1e-12})
-        meu_data_accuracy = {"Model": "Logic", "Predictive Accuracy":-1 * res['fun'], "Params":-1 * res['x']}
+        meu_data_accuracy = {"Model": "Logic", "Predictive Accuracy":-1 * res['fun'], "Params": res['x']}
         all_data = all_data.append(meu_data_accuracy, ignore_index=True)
         
         res = optimize.minimize(bvae_mse, (10, 10), args=(participant_data), bounds=((0, 1000),(-100, 100)), options={"gtol":1e-12})
-        meu_data_accuracy = {"Model": "BVAE", "Predictive Accuracy":-1 * res['fun'], "Params":-1 * res['x']}
+        meu_data_accuracy = {"Model": "BVAE", "Predictive Accuracy":-1 * res['fun'], "Params": res['x']}
         all_data = all_data.append(meu_data_accuracy, ignore_index=True)
 
         #inv_temps.append(res['x'][0])
         #predictive_accuracies.append(-1 * res['fun'])
 
     print(all_data)
+    all_data.to_csv("./fit.pd")
     ax = sns.violinplot(x="Model", y="Predictive Accuracy", data=all_data)
     plt.title("Model Predictive Accuracy")
     plt.show()
