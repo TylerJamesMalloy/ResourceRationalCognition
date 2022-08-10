@@ -25,6 +25,9 @@ from utils.visualize import GifTraversalsTraining
 
 from torch.utils.data import Dataset, DataLoader
 
+from models.vision.cnn import CNN
+from models.vision.cnn import Trainer as CNN_Trainer  
+
 import torch 
 from torch import optim
 import pandas as pd 
@@ -468,8 +471,8 @@ def main(args):
     predictive_accuracies = []
     inv_temps = []
     all_data = pd.DataFrame()
-    #for participant_data in all_participant_data:
-    for participant_data in ['1206472879_20220607.csv']:
+    for participant_data in all_participant_data:
+    #for participant_data in ['1206472879_20220607.csv']:
         #print(meu_predictive_accuracy(5, participant_data))
         #assert(False)
         

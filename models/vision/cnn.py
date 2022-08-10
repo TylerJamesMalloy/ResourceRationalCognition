@@ -107,7 +107,7 @@ class CNN(nn.Module):
         util_input = self.activation['fcbn1']
         utility = self.utility(util_input)
 
-        return feature_labels, utility 
+        return feature_labels, utility, self.activation
 
     def save(self, save_dir, filename=None):
         """
@@ -272,7 +272,7 @@ class Trainer():
         """
         batch_size, channel, height, width = data.size()
         data = data.to(self.device)
-        feature_labels = th.from_numpy(feature_labels).to(self.device)
+        #feature_labels = th.from_numpy(feature_labels).to(self.device)
         
         """from PIL import Image
         import numpy as np 
@@ -283,7 +283,7 @@ class Trainer():
         im.show()
 
         print(" data shape in train iteration: ", data.shape)"""
-        recon_labels, recon_utilities = self.model(data)
+        recon_labels, recon_utilities, _ = self.model(data)
         loss = self.model.loss(data, utilities, recon_utilities,
                             feature_labels, recon_labels,
                             self.model.training, storer)

@@ -14,6 +14,9 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 #import warnings
 #warnings.filterwarnings('error')
 
+from models.vision.cnn import CNN
+from models.vision.cnn import Trainer as CNN_Trainer   
+
 from disvae import init_specific_model, Trainer, Evaluator
 from disvae.utils.modelIO import save_model, load_model, load_metadata
 from disvae.models.losses import UTIL_LOSSES, LOSSES, RECON_DIST, get_loss_f
@@ -85,8 +88,6 @@ def parse_arguments(args_to_parse):
 
     # General options
     general = parser.add_argument_group('General options')
-    general.add_argument('-name', type=str, default='',
-                         help="Name of the model for storing and loading purposes.")
     general.add_argument('-L', '--log-level', help="Logging levels.",
                          default=default_config['log_level'], choices=LOG_LEVELS)
     general.add_argument('--no-progress-bar', action='store_true',
@@ -203,6 +204,20 @@ def parse_arguments(args_to_parse):
     modelling.add_argument('--trial-update', type=str,
                             default=default_config['trial_update'],
                             help='Source for util predictions.')
+    
+    modelling.add_argument('--bvae_folder', type=str, default="./marbles/bvae/",
+                         help="BVAE folder.")
+
+    modelling.add_argument('--cnn_folder', type=str, default="./results/marbles/cnn/",
+                         help='Random seed. Can be `None` for stochastic behavior.')
+
+    modelling.add_argument('--feature_labels', type=int,
+                            default=default_config['feature_labels'],
+                            help='Weight for utility loss in training.')
+
+    modelling.add_argument('--dropout_percent', type=int,
+                            default=0,
+                            help='Dropout for CNN')
 
     args = parser.parse_args(args_to_parse)
     if args.experiment != 'custom':
@@ -252,11 +267,10 @@ def meu_predictive_accuracy(parameters, participant_data):
     data = pd.read_csv(join(folder, participant_data))  
     stimuli_set = int(data['marble_set'][0])
 
-    data = data.tail(200)
+    data = data.tail(180)
     
     inv_temp = parameters[0]
-    change_random = parameters[1]
-    change_weight = parameters[2]
+    change_temp = parameters[1]
 
     predictive_accuracy = []
     X = []
@@ -306,31 +320,36 @@ def meu_predictive_accuracy(parameters, participant_data):
             stim_1_util = stimuli_mean_utilities[stim_1] 
             stim_2_util = stimuli_mean_utilities[stim_2] 
             
-            util_diff = np.sqrt((stim_1_util - stim_2_util) ** 2)
-
             changed = data['changed'][ind]
             change_index = int(data['change_index'][ind])
             changed_stim_idx = int(data['stim_1'][ind]) if change_index == 0 else int(data['stim_2'][ind])
+            changed_stim_util = stimuli_mean_utilities[changed_stim_idx]
 
-            first_stim = stimuli[changed_stim_idx].unsqueeze(0)
+            first_stim = stimuli[changed_stim_idx].unsqueeze(0).detach().numpy()
 
             if(changed):
-                new_stim = stimuli[int(data['new_stim'][ind])].unsqueeze(0)
-                visual_diff = np.sqrt(np.square(np.subtract(first_stim,new_stim)).mean())
+                new_stim_ind = int(data['changed'][ind])
+                new_stim = stimuli[change_index].unsqueeze(0)
+                new_stim_util = stimuli_mean_utilities[new_stim_ind] 
+                
+                visual_diff = np.sqrt(np.square(np.subtract(first_stim, new_stim)).mean())
+                util_diff = np.sqrt((new_stim_util - changed_stim_util) ** 2) / 4
                 diff = (visual_diff + util_diff) / 2
-                change_detection_prediction = change_weight * diff
             else: 
                 new_stim = np.zeros_like(first_stim)
-                visual_diff = np.sqrt(np.square(np.subtract(first_stim,new_stim)).mean())
+                visual_diff = np.sqrt(np.square(np.subtract(first_stim, new_stim)).mean())
+                util_diff = np.sqrt((0 - changed_stim_util) ** 2) / 4
                 diff = (visual_diff + util_diff) / 2
-                change_detection_prediction = change_random * diff
 
             
+            change_detection_prediction = diff
+            change_detection = np.array([(1-change_detection_prediction), (0+change_detection_prediction)])
+            change_detection_softmax = softmax(change_detection, change_temp)
 
             if(key_press == 'j'): # predict same 
-                predictive_accuracy.append(1 - change_detection_prediction)
+                predictive_accuracy.append(change_detection_softmax[1])
             elif(key_press == 'k'):
-                predictive_accuracy.append(change_detection_prediction)
+                predictive_accuracy.append(change_detection_softmax[0])
 
     if(len(predictive_accuracy) == 0): return 0
     return -1 * np.mean(predictive_accuracy)
@@ -341,10 +360,9 @@ def cpt_predictive_accuracy(params, participant_data):
     data = data.tail(180)
 
     inv_temp = params[0]
-    cpt_scale = params[1]
-    change_random = params[2]
-    change_weight = params[3]
-
+    change_temp = params[1]
+    cpt_scale = params[2]
+    
     predictive_accuracy = []
     X = []
     y = []
@@ -399,30 +417,43 @@ def cpt_predictive_accuracy(params, participant_data):
 
             stim_1_util = stimuli_mean_utilities[stim_1] + (cpt_scale * stimuli_deviations[stim_1])
             stim_2_util = stimuli_mean_utilities[stim_2] + (cpt_scale * stimuli_deviations[stim_2])
-            
-            util_diff = np.sqrt((stim_1_util - stim_2_util) ** 2)
+
+            changed = data['changed'][ind]
+            change_index = int(data['change_index'][ind])
+            changed_stim_idx = int(data['stim_1'][ind]) if change_index == 0 else int(data['stim_2'][ind])
+            changed_stim_util = stimuli_mean_utilities[changed_stim_idx] + (cpt_scale * stimuli_deviations[changed_stim_idx])
             first_stim = stimuli[changed_stim_idx].unsqueeze(0).detach().numpy()
 
             if(changed):
-                new_stim = stimuli[int(data['new_stim'][ind])].unsqueeze(0).detach().numpy()
-                visual_diff = np.sqrt(np.square(np.subtract(first_stim,new_stim)).mean())
-                diff = (util_diff + visual_diff) / 2
-                change_detection_prediction = change_weight * diff
+                new_stim_ind = int(data['changed'][ind])
+                new_stim = stimuli[change_index].unsqueeze(0)
+                new_stim_util = stimuli_mean_utilities[new_stim_ind] + (cpt_scale * stimuli_deviations[new_stim_ind])
+                
+                visual_diff = np.sqrt(np.square(np.subtract(first_stim, new_stim)).mean())
+                util_diff = np.sqrt((new_stim_util - changed_stim_util) ** 2) / 4
+                diff = (visual_diff + util_diff) / 2
             else: 
                 new_stim = np.zeros_like(first_stim)
                 visual_diff = np.sqrt(np.square(np.subtract(first_stim,new_stim)).mean())
-                diff = (util_diff + visual_diff) / 2
-                change_detection_prediction = change_random * diff
+                util_diff = np.sqrt((0 - changed_stim_util) ** 2) / 4
+                diff = (visual_diff + util_diff) / 2
+
+            
+            change_detection_prediction = diff#.detach().numpy()
+            change_detection = np.array([(1-change_detection_prediction), (0+change_detection_prediction)])
+            change_detection_softmax = softmax(change_detection, change_temp)
 
             if(key_press == 'j'): # predict same 
-                predictive_accuracy.append(1 - change_detection_prediction)
+                predictive_accuracy.append(change_detection_softmax[1])
             elif(key_press == 'k'):
-                predictive_accuracy.append(change_detection_prediction)
+                predictive_accuracy.append(change_detection_softmax[0])
     
     if(len(predictive_accuracy) == 0): return 0
     return -1 * np.mean(predictive_accuracy)
 
 def logic_predictive_accuracy(params, participant_data):
+    print("Not updated")
+    assert(False)
     data = pd.read_csv(join(folder, participant_data))  
     stimuli_set = int(data['marble_set'][0])
     data = data.tail(180)
@@ -530,13 +561,13 @@ def logic_predictive_accuracy(params, participant_data):
     return -1 * np.mean(predictive_accuracy)
 
 def bvae_mse(optim_args, participant_data):
-    beta = optim_args[0]
-    inv_temp = optim_args[1]
-    change_weight = optim_args[2]
-    change_rand = optim_args[3]
+    
+    inv_temp = optim_args[0]
+    change_temp = optim_args[1]
+    beta = optim_args[2]
 
     device = get_device(is_gpu=not args.no_cuda)
-    exp_dir = os.path.join(RES_DIR, args.name)
+    exp_dir = os.path.join(RES_DIR, args.bvae_folder)
 
     predictive_accuracy = []
 
@@ -551,7 +582,6 @@ def bvae_mse(optim_args, participant_data):
     args.img_size = get_img_size(args.dataset)
 
     
-
     model = load_model(exp_dir + "/set" + str(stimuli_set))
     #model = init_specific_model(args.model_type, args.utility_type, args.img_size, args.latent_dim)
     model.to(device)
@@ -635,42 +665,172 @@ def bvae_mse(optim_args, participant_data):
             first_stim_sample = first_stim_sample.detach().numpy()
             new_stim_sample = new_stim_sample.detach().numpy()
 
-            utility_diff = change_rand * (np.sqrt(np.sum((first_stim_sample - new_stim_sample)**2)) / 2)
-            latent_diff = change_weight * (np.sqrt(np.sum((first_stim_sample - new_stim_sample)**2)) / len(new_stim_sample))
+            utility_diff = (np.sqrt(np.sum((first_stim_sample - new_stim_sample)**2)) / 2)
+            latent_diff = (np.sqrt(np.sum((first_stim_sample - new_stim_sample)**2)) / len(new_stim_sample))
 
             change_detection_prediction = (latent_diff + utility_diff) / 2
+            change_detection = np.array([(1-change_detection_prediction), (0+change_detection_prediction)])
+            change_detection_softmax = softmax(change_detection, change_temp)
 
             if(key_press == 'j'): # predict same 
-                predictive_accuracy.append(1 - change_detection_prediction)
+                predictive_accuracy.append(change_detection_softmax[1])
             elif(key_press == 'k'):
-                predictive_accuracy.append(change_detection_prediction)
+                predictive_accuracy.append(change_detection_softmax[0])
 
     return -1 * np.mean(predictive_accuracy)
 
 def cnn_mse(optim_args, participant_data):
-    assert(False)
+    inv_temp = optim_args[0]
+    change_temp = optim_args[1]
+
+    device = get_device(is_gpu=not args.no_cuda)
+    exp_dir = os.path.join(RES_DIR, args.cnn_folder)
+
+    feature_labels = [[0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], [0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0], [0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 0], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0], [0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0], [0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0], [1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1], [1, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0], [1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1], [0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1], [0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0], [0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0], [0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0], [1, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1], [1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0], [0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1], [0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0, 0], [0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1], [1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0], [0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0], [0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 1, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1], [1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0], [0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 0], [0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1], [1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1], [0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1], [0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1], [0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 1, 0, 0], [0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1], [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1], [0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0], [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0], [0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0], [1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0], [0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1], [0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1], [1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1], [0, 1, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1], [0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0], [0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0], [0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0], [1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0], [0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0], [0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0], [0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0], [1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1], [0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0], [0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0], [1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0], [0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1], [0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0], [0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], [0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1], [0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0], [0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0], [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1], [1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1]]
+
+    predictive_accuracy = []
+
+    formatter = logging.Formatter('%(asctime)s %(levelname)s - %(funcName)s: %(message)s',
+                                  "%H:%M:%S")
+    logger = None
+
+    data = pd.read_csv(join(folder, participant_data))  
+    stimuli_set = int(data['marble_set'][0])
+
+    data = data.tail(200)
+    args.img_size = get_img_size(args.dataset)
+
+    model = CNN(utility_type=args.utility_type, img_size=args.img_size, latent_dim=2*args.latent_dim,  kwargs=vars(args))
+    model.load(args.cnn_folder + "/set" + str(stimuli_set), args)
+
+    #model = load_model(exp_dir + "/set" + str(stimuli_set))
+    #model = init_specific_model(args.model_type, args.utility_type, args.img_size, args.latent_dim)
+    model.to(device)
+    train_loader = get_dataloaders(args.dataset,
+                                    batch_size=args.batch_size,
+                                    logger=logger,
+                                    set=stimuli_set)
+    
+    optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    
+    loss_f = get_loss_f(args.loss,
+                        n_data=len(train_loader.dataset),
+                        device=device,
+                        **vars(args))
+    
+    
+    trainer = CNN_Trainer(model, optimizer,
+                        device=device,
+                        logger=logger,
+                        save_dir=exp_dir + "/set" + str(stimuli_set),
+                        is_progress_bar=not args.no_progress_bar)
+    
+    feature_labels = np.array(feature_labels)
+    feature_labels = torch.from_numpy(feature_labels).to(device).float()
+
+    utilities = np.array(stimuli_mean_utilities)
+    utilities = torch.from_numpy(utilities.astype(np.float64)).float()
+    trainer(train_loader,
+            utilities=utilities, 
+            epochs=50,
+            feature_labels=feature_labels,
+            checkpoint_every=1000000)
+            
+    stimuli = None 
+    for _, stimuli in enumerate(train_loader):
+        stimuli = stimuli 
+
+    for ind in data.index:
+        if(data['type'][ind] == 1.0):
+            key_press = data['key_press'][ind]
+            if(key_press != 'd' and key_press != 'f'):
+                continue 
+            
+            stim_1 = stimuli[int(data['stim_1'][ind])].unsqueeze(0)
+            _, stim_1_pred_util, _ = model(stim_1)
+
+            stim_2 = stimuli[int(data['stim_2'][ind])].unsqueeze(0)
+            _, stim_2_pred_util, _ = model(stim_2)
+        
+            pred_utils = np.array([stim_1_pred_util.item(), stim_2_pred_util.item()])
+            bvae_softmax = np.exp(pred_utils / inv_temp) / np.sum(np.exp(pred_utils / inv_temp), axis=0)
+
+            stim_1_true_util = stimuli_mean_utilities[int(data['stim_1'][ind])]
+            stim_2_true_util = stimuli_mean_utilities[int(data['stim_2'][ind])]
+
+            #print("predicted stim util: ", stim_1_pred_util.item(), " true util is: ", stim_1_true_util)
+
+            if(key_press == 'd'):
+                predictive_accuracy.append(bvae_softmax[0])
+            elif(key_press == 'f'):
+                predictive_accuracy.append(bvae_softmax[1])
+
+        if(data['type'][ind] == 0.0):
+            key_press = data['key_press'][ind]
+            if(key_press != 'k' and key_press != 'j'):
+                continue
+
+            changed = data['changed'][ind]
+            change_index = int(data['change_index'][ind])
+            changed_stim_idx = int(data['stim_1'][ind]) if change_index == 0 else int(data['stim_2'][ind])
+
+            activation = {}
+
+            first_stim = stimuli[changed_stim_idx].unsqueeze(0)
+            first_stim_cat, first_stim_pred_util, first_stim_activation = model(first_stim)
+            first_stim_activation = first_stim_activation['fcbn1'].cpu().numpy()
+
+            if(changed):
+                new_stim = stimuli[int(data['new_stim'][ind])].unsqueeze(0)
+                new_stim_cat, new_stim_pred_util, new_stim_activation = model(new_stim)
+                new_stim_activation = new_stim_activation['fcbn1'].cpu().numpy()
+            else: 
+                #new_stim = stimuli[int(data['new_stim'][ind])].unsqueeze(0)
+                new_stim = np.zeros_like(first_stim)
+                new_stim_cat, new_stim_pred_util = model(new_stim)
+
+            first_stim_sample = first_stim_sample.detach().numpy()
+            new_stim_sample = new_stim_sample.detach().numpy()
+
+            utility_diff =  (np.sqrt(np.sum((first_stim_pred_util - new_stim_pred_util)**2)) / 2)
+            latent_diff =  (np.sqrt(np.sum((new_stim_activation - first_stim_activation)**2)) / len(new_stim_sample))
+
+            change_detection_prediction = (latent_diff + utility_diff) / 2
+
+            change_detection = np.array([(1-change_detection_prediction), (0+change_detection_prediction)])
+            change_detection_softmax = softmax(change_detection, change_temp)
+
+            if(key_press == 'j'): # predict same 
+                predictive_accuracy.append(change_detection_softmax[1])
+            elif(key_press == 'k'):
+                predictive_accuracy.append(change_detection_softmax[0])
+
+    return -1 * np.mean(predictive_accuracy)
 
 def main(args):
     all_data = pd.DataFrame()
-    #for participant_data in all_participant_data:
-    for participant_data in ['1088359975_20220708.csv']:
-        #print(meu_predictive_accuracy(5, participant_data))
+    for participant_data in all_participant_data:
+    #for participant_data in ['1088359975_20220708.csv']:
+        #res = optimize.minimize(meu_predictive_accuracy, (20, 20), args=(participant_data), bounds=((1e-6, 100),(1e-6, 100)), options={"gtol":1e-12})
+        #meu_data_accuracy = {"Model": "MEU", "Predictive Accuracy":-1 * res['fun'], "Params": res['x']}
+        #all_data = all_data.append(meu_data_accuracy, ignore_index=True)
+        
+        #res = optimize.minimize(cpt_predictive_accuracy, (20, 20, 1), args=(participant_data), bounds=((1e-6, 100),(1e-6, 100),(1e-6, 100)), options={"gtol":1e-12})
+        #cpt_data_accuracy = {"Model": "CPT", "Predictive Accuracy":-1 * res['fun'], "Params": res['x']}
+        #all_data = all_data.append(cpt_data_accuracy, ignore_index=True)
+
+        #res = optimize.minimize(logic_predictive_accuracy, (2,3,4,20, 0.5, 0.5), args=(participant_data), bounds=((.1,10),(.1,10),(.1,10),(1e-6, 100),(1e-6,1),(1e-6,1)), options={"gtol":1e-12})
+        #logic_data_accuracy = {"Model": "Logic", "Predictive Accuracy":-1 * res['fun'], "Params": res['x']}
+        #all_data = all_data.append(logic_data_accuracy, ignore_index=True)
+        
+        #res = optimize.minimize(bvae_mse, (20, 20, 10), args=(participant_data), bounds=((1e-6, 100),(1e-6, 100),(1e-6, 100)), options={"gtol":1e-12})
+        #bvae_data_accuracy = {"Model": "BVAE", "Predictive Accuracy": res['fun']}
+        #all_data = all_data.append(bvae_data_accuracy, ignore_index=True)
+
+        #print(cnn_mse((10, 0.5, 0.2), participant_data))
         #assert(False)
-
-        res = optimize.minimize(meu_predictive_accuracy, (20, 0.5, 0.5), args=(participant_data), bounds=((1e-6, 100), (1e-6,1), (1e-6,1)))
-        meu_data_accuracy = {"Model": "MEU", "Predictive Accuracy":-1 * res['fun'], "Params":-1 * res['x']}
-        all_data = all_data.append(meu_data_accuracy, ignore_index=True)
-        
-        res = optimize.minimize(cpt_predictive_accuracy, (20, 1, 0.5, 0.5), args=(participant_data), bounds=((1e-6, 100),(1e-3, 3),(1e-6,1),(1e-6,1)))
-        cpt_data_accuracy = {"Model": "CPT", "Predictive Accuracy":-1 * res['fun'], "Params":-1 * res['x']}
-        all_data = all_data.append(cpt_data_accuracy, ignore_index=True)
-
-        res = optimize.minimize(logic_predictive_accuracy, (2,3,4,20, 0.5, 0.5), args=(participant_data), bounds=((.1,10),(.1,10),(.1,10),(1e-6, 100),(1e-6,1),(1e-6,1)))
-        logic_data_accuracy = {"Model": "Logic", "Predictive Accuracy":-1 * res['fun'], "Params":-1 * res['x']}
-        all_data = all_data.append(logic_data_accuracy, ignore_index=True)
-        
-        res = optimize.minimize(bvae_mse, (10, 10, 0.5, 0.2), args=(participant_data), bounds=((0, 1000),(-100, 100), (1e-6,1), (1e-6,1)))
-        bvae_data_accuracy = {"Model": "BVAE", "Predictive Accuracy":-1 * res['fun']}
+        res = optimize.minimize(cnn_mse, (10, 0.5, 0.2), args=(participant_data), bounds=((-100, 100), (1e-6,1), (1e-6,1)), options={"gtol":1e-12})
+        bvae_data_accuracy = {"Model": "CNN", "Predictive Accuracy": res['fun']}
         all_data = all_data.append(bvae_data_accuracy, ignore_index=True)
 
         print("Bvae predictive accuracy: ", -1 * res['fun'])
