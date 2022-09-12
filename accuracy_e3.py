@@ -62,7 +62,7 @@ EXPERIMENTS = ADDITIONAL_EXP + ["{}_{}".format(loss, data)
                                 for loss in LOSSES
                                 for data in DATASETS]
 
-def log_loss_score(predicted, actual, eps=1e-14):
+def mse_score(predicted, actual, eps=1e-14):
         score = 0
         for (pred, act) in zip(predicted, actual):
             score += brier_score_loss(act, pred)
@@ -258,7 +258,7 @@ def softmax(utilities, tau):
     distribution = np.exp(utilities * tau) / np.sum(np.exp(utilities * tau))
     return distribution
 
-def frl_log_loss(parameters, participant_data):
+def frl_mse(parameters, participant_data):
     data = pd.read_csv(join(folder, participant_data))  
     stimuli_set = int(data['marble_set'][0])
 
@@ -325,13 +325,14 @@ def frl_log_loss(parameters, participant_data):
             stim_utility = np.sum(np.multiply(feature_values, stim_features))
             utilities.append(stim_utility / 90) # divide by 9 to get means same size as decision making task 
 
-        meu_softmax = softmax(np.array([utilities[0] , utilities[1]]), inv_temp)
+        stim_1_true_util = stimuli_mean_utilities[int(data['stim_1'][ind])]
+        stim_2_true_util = stimuli_mean_utilities[int(data['stim_2'][ind])]
+        new_stim_true_util = stimuli_mean_utilities[int(data['new_stim'][ind])]
+        #utilities = [stim_1_true_util, stim_2_true_util]
 
-        #stim_1_true_util = stimuli_mean_utilities[int(data['stim_1'][ind])]
-        #stim_2_true_util = stimuli_mean_utilities[int(data['stim_2'][ind])]
-        #new_stim_true_util = stimuli_mean_utilities[int(data['new_stim'][ind])]
-        #utilities = np.array([stim_1_true_util / 10, stim_2_true_util / 10, new_stim_true_util / 10])
-        #meu_softmax = softmax(np.array([stim_1_true_util / 10, stim_2_true_util / 10]), inv_temp)
+        #utilities = np.array(utilities)
+        utilities = np.array([stim_1_true_util / 10, stim_2_true_util / 10, new_stim_true_util / 10])
+        meu_softmax = softmax(utilities, inv_temp)
 
         if(np.isnan(meu_softmax).any()):
             print(utilities)
@@ -382,6 +383,7 @@ def frl_log_loss(parameters, participant_data):
             for feature_index, feature_value in enumerate(feature_values): 
                 if(chosen[feature_index] == 0): continue 
                 feature_reward = (feature_reward_diff * chosen[feature_index] ) + color_rewards[feature_index]
+                #feature_reward = color_rewards[feature_index]
                 feature_values[feature_index] = feature_value + learning_rate * (feature_reward - feature_value)
             
             #print(feature_values)
@@ -433,11 +435,10 @@ def frl_log_loss(parameters, participant_data):
 
     
     #if(len(predictive_accuracy) == 0): return 0
-    #return -1 * np.mean(predictive_accuracy)
-    return log_loss_score(X,y)
+    return np.mean(predictive_accuracy)
 
 
-def bvae_log_loss(parameters, participant_data):
+def bvae_mse(parameters, participant_data):
     inv_temp = parameters[0]
     change_temp = parameters[1]
     learning_rate = parameters[2]
@@ -669,10 +670,9 @@ def bvae_log_loss(parameters, participant_data):
 
     
     #if(len(predictive_accuracy) == 0): return 0
-    #return -1 * np.mean(predictive_accuracy)
-    return log_loss_score(X,y)
+    return np.mean(predictive_accuracy)
 
-def cnn_log_loss(parameters, participant_data):
+def cnn_mse(parameters, participant_data):
     inv_temp = parameters[0]
     change_temp = parameters[1]
     learning_rate = parameters[2]
@@ -910,11 +910,8 @@ def cnn_log_loss(parameters, participant_data):
                 predictive_accuracy.append(change_detection_softmax[0])
 
     
-    #if(len(predictive_accuracy) == 0): return 0
-    #return -1 * np.mean(predictive_accuracy)
-    return log_loss_score(X,y)
-
-
+    if(len(predictive_accuracy) == 0): return 0
+    return np.mean(predictive_accuracy)
 
 def accuracy(participant_data):
     data = pd.read_csv(join(folder, participant_data))  
@@ -993,7 +990,12 @@ def main(args):
     all_data = pd.DataFrame()
     #for participant_data in all_participant_data:
     for participant_data in good_participants:
-        res = optimize.minimize(frl_log_loss, (5, 5, 0.8), args=(participant_data), bounds=((1e-6, 100), (1e-6, 100), (1e-6,1)), options={"gtol":1e-12})
+        
+        #print(bvae_mse((20,20,0.8,4), participant_data=participant_data))
+        print(cnn_mse((20,20,0.8), participant_data=participant_data))
+        assert(False)
+        
+        res = optimize.minimize(frl_mse, (20, 20, 0.8), args=(participant_data), bounds=((1e-6, 100), (1e-6, 100), (1e-6,1)), options={"gtol":1e-12})
         frl_data_accuracy = {"Model": "FRL", "Log Loss": res['fun'], "Params": res['x']}
         all_data = all_data.append(frl_data_accuracy, ignore_index=True)
 

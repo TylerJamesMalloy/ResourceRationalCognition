@@ -14,7 +14,7 @@ import ast
  
 """
  
-data_paths = glob.glob("new/*")
+data_paths = glob.glob("data/*")
 all_marble_colors = pd.read_csv("../source/colors.csv")
 all_marble_colors = all_marble_colors['colors']
  
@@ -22,7 +22,6 @@ riskAversion = pd.DataFrame()
  
 all_bonuses = []
 all_close = []
- 
  
 allDataFrame = pd.DataFrame()
 for participant_id, data_path in enumerate(data_paths):
@@ -34,7 +33,7 @@ for participant_id, data_path in enumerate(data_paths):
 
     id = data_path.split("\\")[0].split("_")[0]
     # type 1: utility prediction, type 0: change detection
-    trialBlocks = dataFrame.tail(200) #[dataFrame['trial_num'] > 40]
+    trialBlocks = dataFrame.tail(200)
 
     rts = trialBlocks['rt'].to_numpy()
     rts = rts[~np.isnan(rts)]
@@ -59,16 +58,18 @@ for participant_id, data_path in enumerate(data_paths):
             " gets a bonus of: ", participant_bonus,
             " got close on ", participant_close)
     all_bonuses.append(participant_bonus)
-    all_close.append(participant_close)
+    if(participant_close >= 0.8):
+        all_close.append(data_path)
  
 # data2/6857915029_20220607.csv
 # data2/2616009388_20220607.csv
- 
- 
-#print(all_close)
-print(all_bonuses)
-print(data_paths)
-print(np.mean(all_bonuses))
+
+print(len(all_bonuses))
+print(len(all_close))
+print(all_close)
+#print(all_bonuses)
+#print(data_paths)
+#print(np.mean(all_bonuses))
  
  
  

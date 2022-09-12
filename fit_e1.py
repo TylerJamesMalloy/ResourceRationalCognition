@@ -14,9 +14,6 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 #import warnings
 #warnings.filterwarnings('error')
 
-from models.vision.cnn import CNN
-from models.vision.cnn import Trainer as CNN_Trainer   
-
 from disvae import init_specific_model, Trainer, Evaluator
 from disvae.utils.modelIO import save_model, load_model, load_metadata
 from disvae.models.losses import UTIL_LOSSES, LOSSES, RECON_DIST, get_loss_f
@@ -27,6 +24,9 @@ from utils.helpers import (create_safe_directory, get_device, set_seed, get_n_pa
 from utils.visualize import GifTraversalsTraining
 
 from torch.utils.data import Dataset, DataLoader
+
+from models.vision.cnn import CNN
+from models.vision.cnn import Trainer as CNN_Trainer  
 
 import torch 
 from torch import optim
@@ -62,21 +62,6 @@ EXPERIMENTS = ADDITIONAL_EXP + ["{}_{}".format(loss, data)
 
 from sklearn.metrics import brier_score_loss
 
-def log_loss_score(predicted, actual, eps=1e-14):
-    score = 0
-    for (pred, act) in zip(predicted, actual):
-        score += brier_score_loss(act, pred)
-    return score
-    """
-    :param predicted:   The predicted probabilities as floats between 0-1
-    :param actual:      The binary labels. Either 0 or 1.
-    :param eps:         Log(0) is equal to infinity, so we need to offset our predicted values slightly by eps from 0 or 1
-    :return:            The logarithmic loss between between the predicted probability assigned to the possible outcomes for item i, and the actual outcome.
-    """
-    predicted = np.clip(predicted, eps, 1-eps)
-    loss = -1 * np.mean(actual * np.log(predicted) + (1 - actual) * np.log(1-predicted))
-
-    return loss
 
 def parse_arguments(args_to_parse):
     """Parse the command line arguments.
@@ -94,6 +79,8 @@ def parse_arguments(args_to_parse):
 
     # General options
     general = parser.add_argument_group('General options')
+    general.add_argument('--bvae_folder', type=str, default='./marbles/bvae/',
+                         help="Name of the model for storing and loading purposes.")
     general.add_argument('-L', '--log-level', help="Logging levels.",
                          default=default_config['log_level'], choices=LOG_LEVELS)
     general.add_argument('--no-progress-bar', action='store_true',
@@ -211,9 +198,6 @@ def parse_arguments(args_to_parse):
                             default=default_config['trial_update'],
                             help='Source for util predictions.')
     
-    modelling.add_argument('--bvae_folder', type=str, default="./marbles/bvae/",
-                         help="BVAE folder.")
-
     modelling.add_argument('--cnn_folder', type=str, default="./results/marbles/cnn/",
                          help='Random seed. Can be `None` for stochastic behavior.')
 
@@ -257,50 +241,40 @@ for marble_colors in all_marble_colors:
     stimuli_mean_utilities.append(np.mean(marble_values))
     stimuli_marble_values.append(marble_values)
 
-folder = './data/marbles/decisions/data2'
+folder = './data/marbles/decisions/data'
+good_participants = ['1206472879_20220607.csv', '13896051_20220623.csv', '1481432285_20220607.csv', '1571956186_20220623.csv', '1655417347_20220607.csv', '1670585779_20220607.csv', '169075273_20220607.csv', '1917494030_20220701.csv', '2024508277_20220622.csv', '2307452822_20220602.csv', '2429104214_20220607.csv', '2467485070_20220701.csv', '2616009388_20220607.csv', '2669911017_20220607.csv', '282458648_20220622.csv', '2969042685_20220622.csv', '3010097611_20220622.csv', '3016456232_20220622.csv', '302208162_20220607.csv', '3050445599_20220701.csv', '3072452500_20220623.csv', '3231145639_20220622.csv', '3310926888_20220622.csv', '3437000926_20220623.csv', '3453896152_20220518.csv', '3525719084_20220607.csv', '3545302544_20220623.csv', '3627110067_20220623.csv', '3709436102_20220622.csv', '3774486973_20220702.csv', '3777558888_20220602.csv', '3868544605_20220622.csv', '424296399_20220622.csv', '4302545825_20220607.csv', '4309499885_20220624.csv', '4424042522_20220623.csv', '4522484535_20220602.csv', '4604314752_20220625.csv', '4717805082_20220622.csv', '4737559307_20220623.csv', '4758284626_20220607.csv', '4784817211_20220623.csv', '4786413128_20220623.csv', '4833293935_20220607.csv', '5138618294_20220607.csv', '5144493038_20220602.csv', '5347559166_20220701.csv', '5534437613_20220701.csv', '5552993317_20220602.csv', '5878990705_20220607.csv', '5979681843_20220623.csv', '6130248011_20220622.csv', '6174180168_20220602.csv', '6176365135_20220602.csv', '6247410167_20220607.csv', '6737332423_20220607.csv', '6745644970_20220623.csv', '682320948_20220701.csv', '685851185_20220701.csv', '6948208686_20220602.csv', '6969137467_20220622.csv', '7043291063_20220622.csv', '7056217438_20220622.csv', '7075207841_20220622.csv', '7243344067_20220701.csv', '7351329913_20220701.csv', '748797646_20220518.csv', '7489651562_20220701.csv', '7560795788_20220624.csv', '7708514735_20220701.csv', '7729591288_20220607.csv', '7811512263_20220623.csv', '7839131207_20220623.csv', '7916373955_20220622.csv', '8198410857_20220622.csv', '8254485902_20220623.csv', '8488980532_20220602.csv', '851978686_20220701.csv', '8762245299_20220622.csv', '8880742555_20220623.csv', '8894686670_20220622.csv', '9023291296_20220602.csv', '908333355_20220623.csv', '908986223_20220622.csv', '9162481065_20220607.csv', '9177013872_20220518.csv', '9195187466_20220607.csv', '9262283903_20220623.csv', '934906418_20220623.csv', '9410194125_20220623.csv', '9412783563_20220607.csv', '9796178986_20220623.csv', '9824877929_20220518.csv']
+#good_participants = ['1206472879_20220607.csv', '1481432285_20220607.csv', '1571956186_20220623.csv', '1655417347_20220607.csv', '169075273_20220607.csv', '2307452822_20220602.csv', '2429104214_20220607.csv', '2669911017_20220607.csv', '282458648_20220622.csv', '2969042685_20220622.csv', '3010097611_20220622.csv', '302208162_20220607.csv', '3050445599_20220701.csv', '3072452500_20220623.csv', '3310926888_20220622.csv', '3437000926_20220623.csv', '3525719084_20220607.csv', '3545302544_20220623.csv', '3709436102_20220622.csv', '3774486973_20220702.csv', '3777558888_20220602.csv', '4302545825_20220607.csv', '4309499885_20220624.csv', '4424042522_20220623.csv', '4604314752_20220625.csv', '4717805082_20220622.csv', '4784817211_20220623.csv', '4833293935_20220607.csv', '5138618294_20220607.csv', '5144493038_20220602.csv', '5534437613_20220701.csv', '5878990705_20220607.csv', '6130248011_20220622.csv', '6174180168_20220602.csv', '6176365135_20220602.csv', '6247410167_20220607.csv', '682320948_20220701.csv', '685851185_20220701.csv', '6969137467_20220622.csv', '7056217438_20220622.csv', '748797646_20220518.csv', '7489651562_20220701.csv', '7708514735_20220701.csv', '7729591288_20220607.csv', '7811512263_20220623.csv', '8198410857_20220622.csv', '8254485902_20220623.csv', '8488980532_20220602.csv', '8762245299_20220622.csv', '8880742555_20220623.csv', '8894686670_20220622.csv', '908986223_20220622.csv', '9162481065_20220607.csv', '9177013872_20220518.csv', '9195187466_20220607.csv', '9262283903_20220623.csv', '934906418_20220623.csv', '9412783563_20220607.csv', '9796178986_20220623.csv', '9824877929_20220518.csv']
 all_participant_data = [f for f in listdir(folder) if isfile(join(folder, f))]
-good_participants = ['1088359975_20220708.csv', '1384981370_20220710.csv', '1748395787_20220709.csv', '1832380163_20220710.csv', '1996454642_20220710.csv', '2285081095_20220709.csv', '3072823518_20220709.csv', '3209482804_20220710.csv', '3280341755_20220709.csv', '3437307782_20220709.csv', '3684971091_20220710.csv', '4192753508_20220710.csv', '4617021112_20220709.csv', '4984990593_20220710.csv', '5649795488_20220711.csv', '6261906642_20220709.csv', '6967768109_20220708.csv', '7036685623_20220709.csv', '7361812709_20220709.csv', '7714472260_20220710.csv', '7763967651_20220710.csv', '7781888656_20220709.csv', '8056959514_20220709.csv', '8114269562_20220709.csv', '8214654421_20220710.csv', '8242903913_20220710.csv', '8466633972_20220709.csv', '8473787759_20220709.csv', '8854732576_20220710.csv', '8893453676_20220710.csv', '8988448256_20220710.csv', '9201972787_20220709.csv', '9375774875_20220710.csv', '9553285857_20220709.csv', '9852782779_20220709.csv']
-#all_participant_data = [f for f in listdir(folder) if isfile(join(folder, f))]
 #all_participant_data = [participant_data for participant_data in all_participant_data if participant_data not in bad_participants]
-all_participant_data = good_participants
+#all_participant_data = good_participants
+
+def log_loss_score(predicted, actual, eps=1e-14):
+        score = 0
+        for (pred, act) in zip(predicted, actual):
+            score += brier_score_loss(act, pred)
+        return score
+        """
+        :param predicted:   The predicted probabilities as floats between 0-1
+        :param actual:      The binary labels. Either 0 or 1.
+        :param eps:         Log(0) is equal to infinity, so we need to offset our predicted values slightly by eps from 0 or 1
+        :return:            The logarithmic loss between between the predicted probability assigned to the possible outcomes for item i, and the actual outcome.
+        """
+        predicted = np.clip(predicted, eps, 1-eps)
+        loss = -1 * np.mean(actual * np.log(predicted) + (1 - actual) * np.log(1-predicted))
+
+        return loss
 
 def softmax(utilities, tau):
-    try:
-        distribution = np.exp(utilities * tau) / np.sum(np.exp(utilities * tau))
-    except Exception as e: 
-        deterministic = np.zeros_like(utilities)
-        max_idx = np.argmax(utilities)
-        deterministic[max_idx] = 1
-        return deterministic
-    
-    if np.isnan(distribution).any():
-        deterministic = np.zeros_like(utilities)
-        max_idx = np.argmax(utilities)
-        deterministic[max_idx] = 1
-        return deterministic
-    
+    distribution = np.exp(utilities * tau) / np.sum(np.exp(utilities * tau))
     return distribution
 
-def meu_log_loss(parameters, participant_data):
+def meu_negative_log_loss(inv_temp, participant_data):
     data = pd.read_csv(join(folder, participant_data))  
-    stimuli_set = int(data['marble_set'][0])
-
     data = data.tail(200)
-    
-    inv_temp = parameters[0]
-    change_temp = parameters[1]
 
     predictive_accuracy = []
     X = []
     y = []
-
-    train_loader = get_dataloaders(args.dataset,
-                                    batch_size=args.batch_size,
-                                    logger=None,
-                                    set=stimuli_set)
-    stimuli = None 
-    for _, stimuli in enumerate(train_loader):
-        stimuli = stimuli 
 
     for ind in data.index:
         if(data['type'][ind] == 1.0):
@@ -326,77 +300,22 @@ def meu_log_loss(parameters, participant_data):
                 y.append([1,0])
             else:
                 assert(False)
-        
-        if(data['type'][ind] == 0.0):
-            key_press = data['key_press'][ind]
-            if(key_press != 'k' and key_press != 'j'):
-                continue
-            
-            stim_1 = int(data['stim_1'][ind])
-            stim_2 = int(data['stim_2'][ind])
 
-            stim_1_util = stimuli_mean_utilities[stim_1] 
-            stim_2_util = stimuli_mean_utilities[stim_2] 
-            
-            changed = data['changed'][ind]
-            change_index = int(data['change_index'][ind])
-            changed_stim_idx = int(data['stim_1'][ind]) if change_index == 0 else int(data['stim_2'][ind])
-            changed_stim_util = stimuli_mean_utilities[changed_stim_idx]
-
-            first_stim = stimuli[changed_stim_idx].unsqueeze(0).detach().numpy()
-
-            if(changed):
-                new_stim_ind = int(data['changed'][ind])
-                new_stim = stimuli[change_index].unsqueeze(0)
-                new_stim_util = stimuli_mean_utilities[new_stim_ind] 
-                
-                visual_diff = np.sqrt(np.square(np.subtract(first_stim, new_stim)).mean())
-                util_diff = np.sqrt((new_stim_util - changed_stim_util) ** 2) / 4
-                diff = (visual_diff + util_diff) / 2
-            else: 
-                new_stim = np.zeros_like(first_stim)
-                visual_diff = np.sqrt(np.square(np.subtract(first_stim, new_stim)).mean())
-                util_diff = np.sqrt((0 - changed_stim_util) ** 2) / 4
-                diff = (visual_diff + util_diff) / 2
-
-            
-            change_detection_prediction = diff
-            change_detection = np.array([(0+change_detection_prediction), (1-change_detection_prediction)])
-            change_detection_softmax = softmax(change_detection, change_temp)
-
-            X.append(change_detection_softmax)
-            if(key_press == 'j'): # predict same 
-                y.append([1,0])
-                predictive_accuracy.append(change_detection_softmax[0])
-            elif(key_press == 'k'):
-                y.append([0,1])
-                predictive_accuracy.append(change_detection_softmax[1])
-
-    #if(len(predictive_accuracy) == 0): return 0
     #return -1 * np.mean(predictive_accuracy)
-
+    X = np.array(X)
+    y = np.array(y)
     return log_loss_score(X,y)
 
-def cpt_log_loss(params, participant_data):
+def cpt_negative_log_loss(params, participant_data):
     data = pd.read_csv(join(folder, participant_data))  
-    stimuli_set = int(data['marble_set'][0])
     data = data.tail(200)
 
     inv_temp = params[0]
-    change_temp = params[1]
-    cpt_scale = params[2]
-    
+    cpt_scale = params[1]
+
     predictive_accuracy = []
     X = []
     y = []
-
-    train_loader = get_dataloaders(args.dataset,
-                                    batch_size=args.batch_size,
-                                    logger=None,
-                                    set=stimuli_set)
-    stimuli = None 
-    for _, stimuli in enumerate(train_loader):
-        stimuli = stimuli 
 
     for ind in data.index:
         if(data['type'][ind] == 1.0):
@@ -425,81 +344,20 @@ def cpt_log_loss(params, participant_data):
                 y.append([0,1])
             else:
                 assert(False)
-        
-        if(data['type'][ind] == 0.0):
-            key_press = data['key_press'][ind]
-            if(key_press != 'k' and key_press != 'j'):
-                continue
-
-            changed = data['changed'][ind]
-            change_index = int(data['change_index'][ind])
-            changed_stim_idx = int(data['stim_1'][ind]) if change_index == 0 else int(data['stim_2'][ind])
-
-            stim_1 = int(data['stim_1'][ind])
-            stim_2 = int(data['stim_2'][ind])
-
-            stim_1_util = stimuli_mean_utilities[stim_1] + (cpt_scale * stimuli_deviations[stim_1])
-            stim_2_util = stimuli_mean_utilities[stim_2] + (cpt_scale * stimuli_deviations[stim_2])
-
-            changed = data['changed'][ind]
-            change_index = int(data['change_index'][ind])
-            changed_stim_idx = int(data['stim_1'][ind]) if change_index == 0 else int(data['stim_2'][ind])
-            changed_stim_util = stimuli_mean_utilities[changed_stim_idx] + (cpt_scale * stimuli_deviations[changed_stim_idx])
-            first_stim = stimuli[changed_stim_idx].unsqueeze(0).detach().numpy()
-
-            if(changed):
-                new_stim_ind = int(data['changed'][ind])
-                new_stim = stimuli[change_index].unsqueeze(0)
-                new_stim_util = stimuli_mean_utilities[new_stim_ind] + (cpt_scale * stimuli_deviations[new_stim_ind])
-                
-                visual_diff = np.sqrt(np.square(np.subtract(first_stim, new_stim)).mean())
-                util_diff = np.sqrt((new_stim_util - changed_stim_util) ** 2) / 4
-                diff = (visual_diff + util_diff) / 2
-            else: 
-                new_stim = np.zeros_like(first_stim)
-                visual_diff = np.sqrt(np.square(np.subtract(first_stim,new_stim)).mean())
-                util_diff = np.sqrt((0 - changed_stim_util) ** 2) / 4
-                diff = (visual_diff + util_diff) / 2
-
-            
-            change_detection_prediction = diff#.detach().numpy()
-            change_detection = np.array([(1-change_detection_prediction), (0+change_detection_prediction)])
-            change_detection_softmax = softmax(change_detection, change_temp)
-            
-            X.append(change_detection_softmax)
-            if(key_press == 'j'): # predict same 
-                y.append([1,0])
-                predictive_accuracy.append(change_detection_softmax[1])
-            elif(key_press == 'k'):
-                y.append([0,1])
-                predictive_accuracy.append(change_detection_softmax[0])
     
-    #if(len(predictive_accuracy) == 0): return 0
     #return -1 * np.mean(predictive_accuracy)
+    X = np.array(X)
+    y = np.array(y)
     return log_loss_score(X,y)
 
-def logic_log_loss(params, participant_data):
-    print("Not updated")
-    assert(False)
+def logic_negative_log_loss(params, participant_data):
     data = pd.read_csv(join(folder, participant_data))  
-    stimuli_set = int(data['marble_set'][0])
     data = data.tail(200)
-
-    train_loader = get_dataloaders(args.dataset,
-                                    batch_size=args.batch_size,
-                                    logger=None,
-                                    set=stimuli_set)
-
-    stimuli = None 
-    for _, stimuli in enumerate(train_loader):
-        stimuli = stimuli 
 
     twos_value = params[0]
     threes_value = params[1]
     fours_value = params[2]
     inv_temp = params[3]
-    change_random = params[4]
-    change_weight = params[5]
 
     predictive_accuracy = []
     X = []
@@ -539,62 +397,22 @@ def logic_log_loss(params, participant_data):
             else:
                 assert(False)
     
-        if(data['type'][ind] == 0.0):
-            key_press = data['key_press'][ind]
-            if(key_press != 'k' and key_press != 'j'):
-                continue
-
-            stim_1 = int(data['stim_1'][ind])
-            stim_2 = int(data['stim_2'][ind])
-
-            changed = data['changed'][ind]
-            change_index = int(data['change_index'][ind])
-            changed_stim_idx = int(data['stim_1'][ind]) if change_index == 0 else int(data['stim_2'][ind])
-
-            stim_1_2s = np.sum(stimuli_marble_values[stim_1] == 2)
-            stim_2_2s = np.sum(stimuli_marble_values[stim_2] == 2)
-
-            stim_1_3s = np.sum(stimuli_marble_values[stim_1] == 3)
-            stim_2_3s = np.sum(stimuli_marble_values[stim_2] == 3)
-
-            stim_1_4s = np.sum(stimuli_marble_values[stim_1] == 4)
-            stim_2_4s = np.sum(stimuli_marble_values[stim_2] == 4)
-
-            stim_1_util = (twos_value * stim_1_2s) + (threes_value * stim_1_3s) + (fours_value * stim_1_4s) 
-            stim_2_util = (twos_value * stim_2_2s) + (threes_value * stim_2_3s) + (fours_value * stim_2_4s) 
-
-            util_diff = np.sqrt((stim_1_util - stim_2_util) ** 2)
-
-            first_stim = stimuli[changed_stim_idx].unsqueeze(0)
-
-            if(changed):
-                new_stim = stimuli[int(data['new_stim'][ind])].unsqueeze(0)
-                visual_diff = np.sqrt(np.square(np.subtract(first_stim,new_stim)).mean())
-                diff = (util_diff + visual_diff) / 2
-                change_detection_prediction = change_weight * diff
-            else: 
-                new_stim = np.zeros_like(first_stim)
-                visual_diff = np.sqrt(np.square(np.subtract(first_stim,new_stim)).mean())
-                diff = (util_diff + visual_diff) / 2
-                change_detection_prediction = change_random * diff
-
-            if(key_press == 'j'): # predict same 
-                predictive_accuracy.append(1 - change_detection_prediction)
-            elif(key_press == 'k'):
-                predictive_accuracy.append(change_detection_prediction)
-
     if(len(predictive_accuracy) == 0): return 0
 
-    return -1 * np.mean(predictive_accuracy)
+    #return -1 * np.mean(predictive_accuracy)
+    X = np.array(X)
+    y = np.array(y)
+    return log_loss_score(X,y)
 
-def bvae_mse(optim_args, participant_data):
-    
-    inv_temp = optim_args[0]
-    change_temp = optim_args[1]
-    beta = optim_args[2]
+def bvae_negative_log_loss(optim_args, participant_data):
+    beta = optim_args[0]
+    inv_temp = optim_args[1]
 
     device = get_device(is_gpu=not args.no_cuda)
     exp_dir = os.path.join(RES_DIR, args.bvae_folder)
+
+    X = []
+    y = []
 
     predictive_accuracy = []
 
@@ -639,7 +457,7 @@ def bvae_mse(optim_args, participant_data):
     utilities = torch.from_numpy(utilities.astype(np.float64)).float()
     trainer(train_loader,
             utilities=utilities, 
-            epochs=1,
+            epochs=args.model_epochs,
             checkpoint_every=1000000)
 
     stimuli = None 
@@ -666,57 +484,23 @@ def bvae_mse(optim_args, participant_data):
             stim_2_true_util = stimuli_mean_utilities[int(data['stim_2'][ind])]
 
             #print("predicted stim util: ", stim_1_pred_util.item(), " true util is: ", stim_1_true_util)
-
+            X.append(bvae_softmax)
             if(key_press == 'd'):
+                y.append([1,0])
                 predictive_accuracy.append(bvae_softmax[0])
             elif(key_press == 'f'):
+                y.append([0,1])
                 predictive_accuracy.append(bvae_softmax[1])
+            else:
+                assert(False)
 
-        if(data['type'][ind] == 0.0):
-            key_press = data['key_press'][ind]
-            if(key_press != 'k' and key_press != 'j'):
-                continue
+    #return -1 * np.mean(predictive_accuracy)
+    X = np.array(X)
+    y = np.array(y)
+    return log_loss_score(X,y)
 
-            changed = data['changed'][ind]
-            change_index = int(data['change_index'][ind])
-            changed_stim_idx = int(data['stim_1'][ind]) if change_index == 0 else int(data['stim_2'][ind])
-
-            first_stim = stimuli[changed_stim_idx].unsqueeze(0)
-            first_stim_recon, first_stim_latent, first_stim_sample, first_stim_pred_util = model(first_stim)
-
-            if(changed):
-                new_stim = stimuli[int(data['new_stim'][ind])].unsqueeze(0)
-                new_stim_recon, new_stim_latent, new_stim_sample, new_stim_pred_util = model(new_stim)
-            else: 
-                new_stim = torch.from_numpy(np.zeros_like(first_stim)).float()
-                #new_stim_recon, new_stim_latent, new_stim_sample, new_stim_pred_util = model(first_stim_recon)
-                new_stim_recon, new_stim_latent, new_stim_sample, new_stim_pred_util = model(new_stim)
-
-            first_stim_sample = first_stim_sample.detach().numpy()
-            new_stim_sample = new_stim_sample.detach().numpy()
-
-            new_stim_pred_util = new_stim_pred_util.detach().numpy()
-            first_stim_pred_util = first_stim_pred_util.detach().numpy()
-
-            utility_diff = (np.sqrt(np.sum((first_stim_pred_util - new_stim_pred_util)**2)) / 2)
-            latent_diff = (np.sqrt(np.sum((first_stim_sample - new_stim_sample)**2)) / len(new_stim_sample[0]))
-
-            change_detection_prediction = (latent_diff + utility_diff) / 2
-            change_detection = np.array([(1-change_detection_prediction), (0+change_detection_prediction)])
-            change_detection_softmax = softmax(change_detection, change_temp)
-
-            if(key_press == 'j'): # predict same 
-                predictive_accuracy.append(change_detection_softmax[1])
-            elif(key_press == 'k'):
-                predictive_accuracy.append(change_detection_softmax[0])
-
-    print(np.mean(predictive_accuracy))
-
-    return -1 * np.mean(predictive_accuracy)
-
-def cnn_mse(optim_args, participant_data):
+def cnn_negative_log_loss(optim_args, participant_data):
     inv_temp = optim_args[0]
-    change_temp = optim_args[1]
 
     device = get_device(is_gpu=not args.no_cuda)
     exp_dir = os.path.join(RES_DIR, args.cnn_folder)
@@ -724,6 +508,9 @@ def cnn_mse(optim_args, participant_data):
     feature_labels = [[0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], [0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0], [0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 0], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0], [0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0], [0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0], [1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1], [1, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0], [1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1], [0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1], [0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0], [0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0], [0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0], [1, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1], [1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0], [0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1], [0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0, 0], [0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1], [1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0], [0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0], [0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 1, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1], [1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0], [0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 0], [0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1], [1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1], [0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1], [0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1], [0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 1, 0, 0], [0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1], [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1], [0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0], [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0], [0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0], [1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0], [0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1], [0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1], [1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1], [0, 1, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1], [0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0], [0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0], [0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0], [1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0], [0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0], [0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0], [0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0], [1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1], [0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0], [0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0], [1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0], [0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1], [0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0], [0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], [0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1], [0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0], [0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0], [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1], [1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1]]
 
     predictive_accuracy = []
+
+    X = []
+    y = []
 
     formatter = logging.Formatter('%(asctime)s %(levelname)s - %(funcName)s: %(message)s',
                                   "%H:%M:%S")
@@ -767,7 +554,7 @@ def cnn_mse(optim_args, participant_data):
     utilities = torch.from_numpy(utilities.astype(np.float64)).float()
     trainer(train_loader,
             utilities=utilities, 
-            epochs=50,
+            epochs=args.model_epochs,
             feature_labels=feature_labels,
             checkpoint_every=1000000)
             
@@ -788,89 +575,64 @@ def cnn_mse(optim_args, participant_data):
             _, stim_2_pred_util, _ = model(stim_2)
         
             pred_utils = np.array([stim_1_pred_util.item(), stim_2_pred_util.item()])
-            bvae_softmax = np.exp(pred_utils / inv_temp) / np.sum(np.exp(pred_utils / inv_temp), axis=0)
+            cnn_softmax = softmax(pred_utils, inv_temp)
 
             stim_1_true_util = stimuli_mean_utilities[int(data['stim_1'][ind])]
             stim_2_true_util = stimuli_mean_utilities[int(data['stim_2'][ind])]
 
             #print("predicted stim util: ", stim_1_pred_util.item(), " true util is: ", stim_1_true_util)
 
+            X.append(cnn_softmax)
             if(key_press == 'd'):
-                predictive_accuracy.append(bvae_softmax[0])
+                y.append([1,0])
+                predictive_accuracy.append(cnn_softmax[0])
             elif(key_press == 'f'):
-                predictive_accuracy.append(bvae_softmax[1])
+                y.append([0,1])
+                predictive_accuracy.append(cnn_softmax[1])
 
-        if(data['type'][ind] == 0.0):
-            key_press = data['key_press'][ind]
-            if(key_press != 'k' and key_press != 'j'):
-                continue
 
-            changed = data['changed'][ind]
-            change_index = int(data['change_index'][ind])
-            changed_stim_idx = int(data['stim_1'][ind]) if change_index == 0 else int(data['stim_2'][ind])
+    #return -1 * np.mean(predictive_accuracy)
+    X = np.array(X)
+    y = np.array(y)
+    return log_loss_score(X,y)
 
-            activation = {}
-
-            first_stim = stimuli[changed_stim_idx].unsqueeze(0)
-            first_stim_cat, first_stim_pred_util, first_stim_activation = model(first_stim)
-            first_stim_activation = first_stim_activation['fcbn1'].cpu().numpy()
-
-            if(changed):
-                new_stim = stimuli[int(data['new_stim'][ind])].unsqueeze(0)
-            else: 
-                new_stim = torch.from_numpy(np.zeros_like(first_stim)).float()
-            
-            new_stim_cat, new_stim_pred_util, new_stim_activation = model(new_stim)
-            new_stim_activation = new_stim_activation['fcbn1'].cpu().numpy()
-
-            new_stim_cat = new_stim_cat.detach().numpy()
-            first_stim_cat = first_stim_cat.detach().numpy()
-
-            first_stim_pred_util = first_stim_pred_util.detach().numpy()
-            new_stim_pred_util = new_stim_pred_util.detach().numpy()
-
-            utility_diff =  (np.sqrt((first_stim_pred_util - new_stim_pred_util)**2)) / 2
-            latent_diff =  (np.sqrt(np.sum((new_stim_activation - first_stim_activation)**2)) / len(new_stim_activation))
-            cat_diff = (np.sqrt(np.sum((new_stim_cat - first_stim_cat)**2)) / len(new_stim_activation))
-
-            change_detection_prediction = (latent_diff + utility_diff) / 2
-            change_detection_prediction = change_detection_prediction[0]
-
-            change_detection = np.array([1-change_detection_prediction, change_detection_prediction])
-            change_detection_softmax = softmax(change_detection, change_temp)
-
-            if(key_press == 'j'): # predict same 
-                predictive_accuracy.append(change_detection_softmax[1])
-            elif(key_press == 'k'):
-                predictive_accuracy.append(change_detection_softmax[0])
-
-    return -1 * np.mean(predictive_accuracy)
 
 def main(args):
-    import time
-
-    t0 = time.time()
-
-    
+    predictive_accuracies = []
+    inv_temps = []
     all_data = pd.DataFrame()
     for participant_data in all_participant_data:
-    #for participant_data in ['1088359975_20220708.csv']:
-        res = optimize.minimize(meu_log_loss, (20, 20), args=(participant_data), bounds=((1e-6, 50),(1e-6, 50)), options={"gtol":1e-12})
-        meu_data_accuracy = {"Model": "MEU", "Log Loss Score": res['fun'], "Parameters": res['x'], "Participant Data": participant_data}
-        all_data = all_data.append(meu_data_accuracy, ignore_index=True)
-        
-        res = optimize.minimize(cpt_log_loss, (20, 20, 1), args=(participant_data), bounds=((1e-6, 50),(1e-6, 50),(1e-6, 10)), options={"gtol":1e-12})
-        cpt_data_accuracy = {"Model": "CPT", "Log Loss Score": res['fun'], "Parameters": res['x'], "Participant Data": participant_data}
+    #for participant_data in ['1206472879_20220607.csv', '1481432285_20220607.csv', '1571956186_20220623.csv', '1655417347_20220607.csv']:
+        #print(meu_negative_log_loss(5, participant_data))
+        #assert(False)
+
+        res = optimize.minimize(cpt_negative_log_loss, (20,1), args=(participant_data), bounds=((1e-6, 100),(1e-3, 3)), options={"gtol":1e-12})
+        cpt_data_accuracy = {"Model": "CPT", "Negative Log Loss": res['fun'], "Parameters": res['x'], "Participant Data": participant_data}
         all_data = all_data.append(cpt_data_accuracy, ignore_index=True)
+        
+        res = optimize.minimize(meu_negative_log_loss, (20), args=(participant_data), bounds=((1e-6, 100),), options={"gtol":1e-12})
+        meu_data_accuracy = {"Model": "MEU", "Negative Log Loss": res['fun'], "Parameters": res['x'], "Participant Data": participant_data}
+        all_data = all_data.append(meu_data_accuracy, ignore_index=True)
+
+        #res = optimize.minimize(logic_negative_log_loss, (2,3,4,20), args=(participant_data), bounds=((.1,10),(.1,10),(.1,10),(1e-6, 100)), options={"gtol":1e-12})
+        #meu_data_accuracy = {"Model": "Logic", "Negative Log Loss":-1 * res['fun'], "Params": res['x']}
+        #all_data = all_data.append(meu_data_accuracy, ignore_index=True)
+        
+        #res = optimize.minimize(bvae_negative_log_loss, (10, 10), args=(participant_data), bounds=((0, 1000),(-100, 100)), options={"gtol":1e-12})
+        #meu_data_accuracy = {"Model": "BVAE", "Negative Log Loss":-1 * res['fun'], "Params": res['x']}
+        #all_data = all_data.append(meu_data_accuracy, ignore_index=True)
+        #bvae_accuracy = bvae_negative_log_loss((res['x'][0], 4), participant_data)
+        #bvae_data_accuracy = {"Model": "BVAE", "Negative Log Loss": bvae_accuracy, "Params": 0, "Participant Data": participant_data}
+        #all_data = all_data.append(bvae_data_accuracy, ignore_index=True)
+
+        #cnn_accuracy = cnn_negative_log_loss((res['x'][0],), participant_data)
+        #cnn_data_accuracy = {"Model": "CNN", "Negative Log Loss": cnn_accuracy, "Params": 0, "Participant Data": participant_data }
+        #all_data = all_data.append(cnn_data_accuracy, ignore_index=True)
 
     print(all_data)
-    
-    print("total time is: ", time.time() - t0)
-
-    all_data.to_pickle("./modelParameters_e2.pkl")
-
-    ax = sns.violinplot(x="Model", y="Log Loss Score", data=all_data)
-    plt.title("Experiment 2 Model Predictive Accuracy by Participant")
+    all_data.to_pickle("./modelParameters_e1.pkl")
+    ax = sns.violinplot(x="Model", y="Negative Log Loss", data=all_data)
+    plt.title("Model Negative Log Loss")
     plt.show()
 
 if __name__ == '__main__':

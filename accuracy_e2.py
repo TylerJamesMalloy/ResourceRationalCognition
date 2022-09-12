@@ -216,6 +216,9 @@ def parse_arguments(args_to_parse):
 
     modelling.add_argument('--cnn_folder', type=str, default="./results/marbles/cnn/",
                          help='Random seed. Can be `None` for stochastic behavior.')
+    
+    modelling.add_argument('--sparse_folder', type=str, default="./results/marbles/sparse/",
+                         help='Random seed. Can be `None` for stochastic behavior.')
 
     modelling.add_argument('--feature_labels', type=int,
                             default=default_config['feature_labels'],
@@ -281,7 +284,7 @@ def softmax(utilities, tau):
     
     return distribution
 
-def meu_log_loss(parameters, participant_data):
+def meu_predictive_accuracy(parameters, participant_data):
     data = pd.read_csv(join(folder, participant_data))  
     stimuli_set = int(data['marble_set'][0])
 
@@ -372,12 +375,9 @@ def meu_log_loss(parameters, participant_data):
                 y.append([0,1])
                 predictive_accuracy.append(change_detection_softmax[1])
 
-    #if(len(predictive_accuracy) == 0): return 0
-    #return -1 * np.mean(predictive_accuracy)
+    return np.mean(predictive_accuracy)
 
-    return log_loss_score(X,y)
-
-def cpt_log_loss(params, participant_data):
+def cpt_predictive_accuracy(params, participant_data):
     data = pd.read_csv(join(folder, participant_data))  
     stimuli_set = int(data['marble_set'][0])
     data = data.tail(200)
@@ -474,11 +474,9 @@ def cpt_log_loss(params, participant_data):
                 y.append([0,1])
                 predictive_accuracy.append(change_detection_softmax[0])
     
-    #if(len(predictive_accuracy) == 0): return 0
-    #return -1 * np.mean(predictive_accuracy)
-    return log_loss_score(X,y)
+    return np.mean(predictive_accuracy)
 
-def logic_log_loss(params, participant_data):
+def logic_predictive_accuracy(params, participant_data):
     print("Not updated")
     assert(False)
     data = pd.read_csv(join(folder, participant_data))  
@@ -587,11 +585,11 @@ def logic_log_loss(params, participant_data):
 
     return -1 * np.mean(predictive_accuracy)
 
-def bvae_mse(optim_args, participant_data):
+def bvae_predictive_accuracy(optim_args, participant_data):
+    beta = optim_args[0]
+    inv_temp = optim_args[1]
+    change_temp = optim_args[2]
     
-    inv_temp = optim_args[0]
-    change_temp = optim_args[1]
-    beta = optim_args[2]
 
     device = get_device(is_gpu=not args.no_cuda)
     exp_dir = os.path.join(RES_DIR, args.bvae_folder)
@@ -639,7 +637,7 @@ def bvae_mse(optim_args, participant_data):
     utilities = torch.from_numpy(utilities.astype(np.float64)).float()
     trainer(train_loader,
             utilities=utilities, 
-            epochs=1,
+            epochs=args.model_epochs,
             checkpoint_every=1000000)
 
     stimuli = None 
@@ -710,16 +708,16 @@ def bvae_mse(optim_args, participant_data):
             elif(key_press == 'k'):
                 predictive_accuracy.append(change_detection_softmax[0])
 
-    print(np.mean(predictive_accuracy))
+    return  np.mean(predictive_accuracy)
 
-    return -1 * np.mean(predictive_accuracy)
-
-def cnn_mse(optim_args, participant_data):
+def cnn_predictive_accuracy(optim_args, participant_data, model_folder, latent_dims):
     inv_temp = optim_args[0]
     change_temp = optim_args[1]
 
     device = get_device(is_gpu=not args.no_cuda)
-    exp_dir = os.path.join(RES_DIR, args.cnn_folder)
+    #exp_dir = os.path.join(RES_DIR, args.cnn_folder)
+    exp_dir = os.path.join(RES_DIR, model_folder)
+    setattr(args, 'latent_dim', latent_dims)
 
     feature_labels = [[0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], [0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0], [0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 0], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0], [0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0], [0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0], [1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1], [1, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0], [1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1], [0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1], [0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0], [0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0], [0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0], [1, 0, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1], [1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0], [0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1], [0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0, 0], [0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1], [1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0], [0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0], [0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 1, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1], [1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0], [0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 0], [0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1], [1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1], [0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1], [0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1], [0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 1, 0, 0], [0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1], [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1], [0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0], [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0], [0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0], [1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0], [0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1], [0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1], [1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1], [0, 1, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1], [0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0], [0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0], [0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0], [1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0], [0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0], [0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0], [0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0], [1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1], [0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0], [0, 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 0], [1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0], [0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1], [0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1], [0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1], [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0], [0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], [0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1], [0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0], [0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0], [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1], [1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1]]
 
@@ -736,7 +734,7 @@ def cnn_mse(optim_args, participant_data):
     args.img_size = get_img_size(args.dataset)
 
     model = CNN(utility_type=args.utility_type, img_size=args.img_size, latent_dim=2*args.latent_dim,  kwargs=vars(args))
-    model.load(args.cnn_folder + "/set" + str(stimuli_set), args)
+    model.load(model_folder + "/set" + str(stimuli_set), args)
 
     #model = load_model(exp_dir + "/set" + str(stimuli_set))
     #model = init_specific_model(args.model_type, args.utility_type, args.img_size, args.latent_dim)
@@ -767,7 +765,7 @@ def cnn_mse(optim_args, participant_data):
     utilities = torch.from_numpy(utilities.astype(np.float64)).float()
     trainer(train_loader,
             utilities=utilities, 
-            epochs=50,
+            epochs=args.model_epochs,
             feature_labels=feature_labels,
             checkpoint_every=1000000)
             
@@ -844,7 +842,7 @@ def cnn_mse(optim_args, participant_data):
             elif(key_press == 'k'):
                 predictive_accuracy.append(change_detection_softmax[0])
 
-    return -1 * np.mean(predictive_accuracy)
+    return np.mean(predictive_accuracy)
 
 def main(args):
     import time
@@ -852,24 +850,58 @@ def main(args):
     t0 = time.time()
 
     
+    modelParameters = pd.read_pickle("./modelParameters_e2.pkl")
+
+    print(modelParameters)
+
     all_data = pd.DataFrame()
     for participant_data in all_participant_data:
-    #for participant_data in ['1088359975_20220708.csv']:
-        res = optimize.minimize(meu_log_loss, (20, 20), args=(participant_data), bounds=((1e-6, 50),(1e-6, 50)), options={"gtol":1e-12})
-        meu_data_accuracy = {"Model": "MEU", "Log Loss Score": res['fun'], "Parameters": res['x'], "Participant Data": participant_data}
-        all_data = all_data.append(meu_data_accuracy, ignore_index=True)
+        parameters = modelParameters.loc[modelParameters['Participant Data'] == participant_data]
         
-        res = optimize.minimize(cpt_log_loss, (20, 20, 1), args=(participant_data), bounds=((1e-6, 50),(1e-6, 50),(1e-6, 10)), options={"gtol":1e-12})
-        cpt_data_accuracy = {"Model": "CPT", "Log Loss Score": res['fun'], "Parameters": res['x'], "Participant Data": participant_data}
+        meu_parameters = parameters.loc[parameters['Model'] == "MEU"]
+        participant_meu_parameters = meu_parameters["Parameters"].values[0]
+
+        meu_accuracy = meu_predictive_accuracy((participant_meu_parameters), (participant_data))
+        meu_data_accuracy = {"Model": "MEU", "Predictive Accuracy": meu_accuracy}
+        all_data = all_data.append(meu_data_accuracy, ignore_index=True)
+
+        print("meu predictive accuracy: ", meu_accuracy)
+
+        cpt_parameters = parameters.loc[parameters['Model'] == "CPT"]
+        participant_cpt_parameters = cpt_parameters["Parameters"].values[0]
+
+        cpt_accuracy = cpt_predictive_accuracy((participant_cpt_parameters), (participant_data))
+        cpt_data_accuracy = {"Model": "CPT", "Predictive Accuracy": cpt_accuracy}
         all_data = all_data.append(cpt_data_accuracy, ignore_index=True)
+
+        print("cpt predictive accuracy: ", cpt_accuracy)
+
+        bvae_accuracy = bvae_predictive_accuracy((10, participant_cpt_parameters[0], participant_cpt_parameters[1]), participant_data)
+        bvae_data_accuracy = {"Model": "BVAE", "Predictive Accuracy": bvae_accuracy, "Parameters": 0, "Participant Data": participant_data}
+        all_data = all_data.append(bvae_data_accuracy, ignore_index=True)
+
+        print("bvae predictive accuracy: ", bvae_accuracy)
+
+        cnn_accuracy = cnn_predictive_accuracy((participant_cpt_parameters), participant_data, args.cnn_folder, 128)
+        cnn_data_accuracy = {"Model": "CNN", "Predictive Accuracy": cnn_accuracy, "Parameters": 0, "Participant Data": participant_data }
+        all_data = all_data.append(cnn_data_accuracy, ignore_index=True)
+
+        print("cnn predictive accuracy: ", cnn_accuracy)
+        
+        sparse_accuracy = cnn_predictive_accuracy((participant_cpt_parameters), participant_data, args.sparse_folder, 9)
+        sparse_data_accuracy = {"Model": "Sparse", "Predictive Accuracy": sparse_accuracy, "Parameters": 0, "Participant Data": participant_data }
+        all_data = all_data.append(sparse_data_accuracy, ignore_index=True)
+
+        print("sparse predictive accuracy: ", sparse_accuracy)
+
 
     print(all_data)
     
     print("total time is: ", time.time() - t0)
 
-    all_data.to_pickle("./modelParameters_e2.pkl")
+    all_data.to_pickle("./modelAccuracy_e2.pkl")
 
-    ax = sns.violinplot(x="Model", y="Log Loss Score", data=all_data)
+    ax = sns.violinplot(x="Model", y="Predictive Accuracy", data=all_data)
     plt.title("Experiment 2 Model Predictive Accuracy by Participant")
     plt.show()
 
