@@ -253,12 +253,17 @@ all_marble_colors = all_marble_colors['colors']
 stimuli_mean_utilities = []
 stimuli_deviations = []
 stimuli_marble_values = []
+
+all_means = []
+all_std = []
 for marble_colors in all_marble_colors:
     marble_colors = np.array(ast.literal_eval(marble_colors))
     marble_values = np.select([marble_colors == 2, marble_colors == 1, marble_colors == 0], [2, 3, 4], marble_colors)
     stimuli_deviations.append(np.std(marble_values))
     stimuli_mean_utilities.append(np.mean(marble_values))
     stimuli_marble_values.append(marble_values)
+    all_means.append(np.mean(marble_values))
+    all_std.append(np.std(marble_values))
 
 folder = './data/marbles/decisions/data2'
 all_participant_data = [f for f in listdir(folder) if isfile(join(folder, f))]
@@ -733,6 +738,8 @@ def cnn_predictive_accuracy(optim_args, participant_data, model_folder, latent_d
     data = data.tail(200)
     args.img_size = get_img_size(args.dataset)
 
+    trial_data = pd.DataFrame()
+
     model = CNN(utility_type=args.utility_type, img_size=args.img_size, latent_dim=2*args.latent_dim,  kwargs=vars(args))
     model.load(model_folder + "/set" + str(stimuli_set), args)
 
@@ -848,11 +855,7 @@ def main(args):
     import time
 
     t0 = time.time()
-
-    
     modelParameters = pd.read_pickle("./modelParameters_e2.pkl")
-
-    print(modelParameters)
 
     all_data = pd.DataFrame()
     for participant_data in all_participant_data:
@@ -876,19 +879,19 @@ def main(args):
 
         print("cpt predictive accuracy: ", cpt_accuracy)
 
-        bvae_accuracy = bvae_predictive_accuracy((10, participant_cpt_parameters[0], participant_cpt_parameters[1]), participant_data)
+        bvae_accuracy = bvae_predictive_accuracy((10, participant_meu_parameters[0], participant_meu_parameters[1]), participant_data)
         bvae_data_accuracy = {"Model": "BVAE", "Predictive Accuracy": bvae_accuracy, "Parameters": 0, "Participant Data": participant_data}
         all_data = all_data.append(bvae_data_accuracy, ignore_index=True)
 
         print("bvae predictive accuracy: ", bvae_accuracy)
 
-        cnn_accuracy = cnn_predictive_accuracy((participant_cpt_parameters), participant_data, args.cnn_folder, 128)
+        cnn_accuracy = cnn_predictive_accuracy((participant_meu_parameters), participant_data, args.cnn_folder, 128)
         cnn_data_accuracy = {"Model": "CNN", "Predictive Accuracy": cnn_accuracy, "Parameters": 0, "Participant Data": participant_data }
         all_data = all_data.append(cnn_data_accuracy, ignore_index=True)
 
         print("cnn predictive accuracy: ", cnn_accuracy)
         
-        sparse_accuracy = cnn_predictive_accuracy((participant_cpt_parameters), participant_data, args.sparse_folder, 9)
+        sparse_accuracy = cnn_predictive_accuracy((participant_meu_parameters), participant_data, args.sparse_folder, 9)
         sparse_data_accuracy = {"Model": "Sparse", "Predictive Accuracy": sparse_accuracy, "Parameters": 0, "Participant Data": participant_data }
         all_data = all_data.append(sparse_data_accuracy, ignore_index=True)
 
@@ -899,10 +902,10 @@ def main(args):
     
     print("total time is: ", time.time() - t0)
 
-    all_data.to_pickle("./modelAccuracy_e2.pkl")
+    all_data.to_pickle("./modelAccuracy_e2_v2.pkl")
 
-    ax = sns.violinplot(x="Model", y="Predictive Accuracy", data=all_data)
-    plt.title("Experiment 2 Model Predictive Accuracy by Participant")
+    ax = sns.barplot(x="Model", y="Predictive Accuracy", data=all_data)
+    plt.title("Change Detection Trial Model Predictive Accuracy by Participant")
     plt.show()
 
 if __name__ == '__main__':

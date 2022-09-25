@@ -646,7 +646,7 @@ def main(args):
         # Sparse also 
 
     print(all_data)
-    all_data.to_csv("./modelAccuracy.csv")
+    all_data.to_pickle("./modelAccuracy_e1.pkl")
     ax = sns.barplot(x="Model", y="Predictive Accuracy", data=all_data)
     ax.set(ylim=(0.5, 0.8))
     plt.title("Model Predictive Accuracy")

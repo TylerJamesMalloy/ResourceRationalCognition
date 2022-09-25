@@ -90,7 +90,10 @@ class VAE(nn.Module):
         latent_dist = self.encoder(x)
         latent_sample = self.reparameterize(*latent_dist)
         reconstruct = self.decoder(latent_sample)
-        util_input = torch.cat((latent_dist[0], latent_dist[1]), 1)
+        
+        #util_input = torch.cat((latent_dist[0], latent_dist[1]), 1)
+        util_input = torch.cat((latent_sample, latent_sample), 1) 
+        
         utility = self.utility(util_input)
         return reconstruct, latent_dist, latent_sample, utility 
 
