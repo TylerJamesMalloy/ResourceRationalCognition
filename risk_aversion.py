@@ -62,6 +62,8 @@ EXPERIMENTS = ADDITIONAL_EXP + ["{}_{}".format(loss, data)
                                 for loss in LOSSES
                                 for data in DATASETS]
 
+from disvae.models.losses import _reconstruction_loss
+
 from sklearn.metrics import brier_score_loss
 
 def softmax(utilities, tau):
@@ -264,6 +266,9 @@ for marble_colors in all_marble_colors:
     stimuli_mean_utilities.append(np.mean(marble_values))
     stimuli_marble_values.append(marble_values)
 
+print(np.argsort(stimuli_mean_utilities))
+
+assert(False)
 def bvae_risk_aversion():
     device = get_device(is_gpu=not args.no_cuda)
     exp_dir = os.path.join(RES_DIR, args.bvae_folder)
@@ -313,8 +318,12 @@ def bvae_risk_aversion():
     utilities = torch.from_numpy(utilities.astype(np.float64)).float()
     trainer(train_loader,
             utilities=utilities, 
-            epochs=40,
+            epochs=1,
             checkpoint_every=1000000)
+
+
+    biggest_utility_diff = -1 
+    biggest_utility_diff_stims = [] 
 
     for stimuli1_idx, stimulus1 in enumerate(stimuli):
         for stimuli2_idx, stimulus2 in enumerate(stimuli):
@@ -350,24 +359,54 @@ def bvae_risk_aversion():
             change_detection = np.array([(1-change_detection_prediction), (0+change_detection_prediction)])
             prob_detect = np.exp(change_detection * tau) / np.sum(np.exp(change_detection * tau))
 
-            util_diff = round(stim1_mean - stim2_mean, 2)
+            #util_diff = round(stim1_mean - stim2_mean, 2)
+            util_diff = np.abs(stim1_mean - stim2_mean) ** 2
 
+            if util_diff > biggest_utility_diff:
+                biggest_utility_diff_stims = [] 
+                biggest_utility_diff_stims.append([stimuli1_idx,stimuli2_idx])
+            
+            if util_diff == biggest_utility_diff:
+                biggest_utility_diff_stims.append([stimuli1_idx,stimuli2_idx])
             
 
-            #visual_diff = np.sqrt(np.square(np.subtract(stimulus1.detach().numpy(),stimulus2.detach().numpy())).mean())
+            visual_diff = np.sqrt(np.square(np.subtract(stimulus1.detach().numpy(),stimulus2.detach().numpy())).mean())
 
-            #d = {"Visual Difference": visual_diff, "Utility Difference": util_diff}
-            d = {"Representation Similarity":representation_similarity, "Probability of Detecting Change": prob_detect[1], "Utility Difference": util_diff}
+            recon_loss = _reconstruction_loss(stimulus1.unsqueeze(0), stimulus2.unsqueeze(0)).item()
+
+
+            d = {"Visual Difference": visual_diff, "Utility Difference": util_diff, "Stimuli Visual Difference": recon_loss}
+            #d = {"Representation Similarity":representation_similarity, "Probability of Detecting Change": prob_detect[1], "Utility Difference": util_diff}
             #d = {"Utility Standard Deviation Difference": std_diff, "Probability of Selecting Stimuli": prob_select[1]}
             data = data.append(d, ignore_index=True)
     
-    data = data.loc[data['Utility Difference'] > 0]
-    data = data.loc[data['Utility Difference'] < 1]
+    print(biggest_utility_diff)
+    print(biggest_utility_diff_stims)
 
-    sns.lineplot(data=data, x="Utility Difference", y="Probability of Detecting Change")
-    sns.regplot(data=data, x="Utility Difference", y="Probability of Detecting Change", scatter=False)
+    assert(False)
+    
+    data = data.loc[data['Visual Difference'] > 0.2]
+    #data = data.loc[data['Utility Difference'] > 0]
+    #data = data.loc[data['Utility Difference'] < 1]
 
-    #plt.show()
+    sns.lineplot(data=data, x="Visual Difference", y="Utility Difference")
+    sns.regplot(data=data, x="Visual Difference", y="Utility Difference", scatter=False)
+
+    plt.title("Stimuli Visual Difference by Utility Difference")
+
+    #sns.lineplot(data=data, x="Utility Difference", y="Probability of Detecting Change")
+    #sns.regplot(data=data, x="Utility Difference", y="Probability of Detecting Change", scatter=False)
+
+    plt.show()
+
+    sns.lineplot(data=data, x="Stimuli Visual Difference", y="Utility Difference")
+    sns.regplot(data=data, x="Stimuli Visual Difference", y="Utility Difference", scatter=False)
+
+    plt.title("Stimuli Visual Difference by Utility Difference")
+
+    plt.show()
+
+    assert(False)
     
     #data = data.loc[data["Number of Utility Observations"] == num_utility_obs]
     utility_differences = data['Utility Difference'].unique()
